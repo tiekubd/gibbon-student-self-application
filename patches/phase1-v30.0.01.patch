@@ -1,0 +1,240 @@
+diff -ru -x README-PHASE1.md -x '*.patch' orig/modules/Admissions/applications_manage_accept.php new/modules/Admissions/applications_manage_accept.php
+--- orig/modules/Admissions/applications_manage_accept.php	2026-10-10 17:08:20.094675197 -0500
++++ new/modules/Admissions/applications_manage_accept.php	2026-10-10 17:09:00.486650709 -0500
+@@ -154,7 +154,8 @@
+             ->setClass('ml-4');
+     }
+ 
+-    if ($formBuilder->hasConfig('acceptanceEmailParentTemplate') && !$formData->has('gibbonPersonIDParent1')) {
++    // Only offer to inform parents when the form collected parent details
++    if ($formBuilder->hasConfig('acceptanceEmailParentTemplate') && $formBuilder->hasField('parent1email') && !$formData->has('gibbonPersonIDParent1')) {
+         $col->addCheckbox('informParents')
+             ->description(__('Automatically inform <u>parents</u> of their Gibbon login details by email?'))
+             ->setValue('Y')
+diff -ru -x README-PHASE1.md -x '*.patch' orig/src/Forms/Builder/Process/PayProcessingFee.php new/src/Forms/Builder/Process/PayProcessingFee.php
+--- orig/src/Forms/Builder/Process/PayProcessingFee.php	2026-10-10 17:08:20.067290545 -0500
++++ new/src/Forms/Builder/Process/PayProcessingFee.php	2026-10-10 18:15:42.968946793 -0500
+@@ -37,6 +37,11 @@
+ {
+     protected $requiredFields = ['Payment Gateway', 'parent1email'];
+ 
++    // The contact email field this form uses: parent1email, or the student's email on
++    // forms without parent fields. Set by verify(), which runs before Form Builder lists
++    // required fields, so that list only shows a field the form is genuinely missing.
++    private $contactFields = ['parent1email', 'email'];
++
+     private $session;
+     private $payment;
+     private $mail;
+@@ -66,6 +71,9 @@
+ 
+         if (!is_numeric($processingFee) || $processingFee <= 0) return;
+ 
++        $contactEmail = $this->getContactEmail($builder, $formData);
++        if (empty($contactEmail)) return;
++
+         $link = Url::fromModuleRoute('Admissions', 'applicationForm_payFee')
+             ->withAbsoluteUrl()
+             ->withQueryParams([
+@@ -77,8 +85,8 @@
+ 
+         // Setup Template 
+         $template = $this->template->setTemplateByID($builder->getConfig('formProcessingEmailTemplate'));
+-        $templateData = [
+-            'email'                => $formData->get('parent1email'),
++        $templateData = array_merge([
++            'email'                => $contactEmail,
+             'date'                 => Format::date(date('Y-m-d')),
+             'link'                 => (string)$link,
+             'applicationID'        => intval($builder->getConfig('foreignTableID')),
+@@ -87,15 +95,12 @@
+             'studentPreferredName' => $formData->get('preferredName'),
+             'studentSurname'       => $formData->get('surname'),
+             'studentOfficialName'  => $formData->get('officialName'),
+-            'parentTitle'          => $formData->get('parent1title'),
+-            'parentPreferredName'  => $formData->get('parent1preferredName'),
+-            'parentSurname'        => $formData->get('parent1surname'),
+             'organisationAdmissionsName'  => $this->session->get('organisationAdmissionsName'),
+             'organisationAdmissionsEmail' => $this->session->get('organisationAdmissionsEmail'),
+-        ];
++        ], $this->getRecipientNames($formData));
+ 
+         // Setup the email
+-        $this->mail->AddAddress($formData->get('parent1email'));
++        $this->mail->AddAddress($contactEmail);
+         $this->mail->setDefaultSender($template->renderSubject($templateData));
+         $this->mail->SetFrom($this->session->get('organisationAdmissionsEmail'), $this->session->get('organisationAdmissionsName'));
+         
+@@ -124,15 +129,62 @@
+         // Cannot unsend what has been sent...
+     }
+ 
++    public function getRequiredFields() : array
++    {
++        return array_merge(['Payment Gateway'], $this->contactFields);
++    }
++
+     public function verify(FormBuilderInterface $builder, FormDataInterface $formData = null)
+     {
++        // A contact email is required: Parent 1, or the student on forms without parent fields
++        if ($builder->hasField('parent1email')) {
++            $this->contactFields = ['parent1email'];
++        } elseif ($builder->hasField('email')) {
++            $this->contactFields = ['email'];
++        } else {
++            $this->contactFields = ['parent1email', 'email'];
++        }
++
+         if (!$this->payment->isEnabled()) {
+             throw new MissingFieldException('Payment Gateway');
+         }
+ 
+-        if (!$builder->hasField('parent1email')) {
+-            throw new MissingFieldException('parent1email');
++        if (!$builder->hasField('parent1email') && !$builder->hasField('email')) {
++            throw new MissingFieldException('parent1email,email');
++        }
++    }
++
++    /**
++     * Who receives the processing fee request: Parent 1 when the form collected one,
++     * otherwise the student, otherwise the admissions account that submitted the form.
++     */
++    protected function getContactEmail(FormBuilderInterface $builder, FormDataInterface $formData) : string
++    {
++        if ($formData->has('parent1email')) return $formData->get('parent1email');
++        if ($formData->has('email')) return $formData->get('email');
++
++        return $builder->getConfig('accountEmail', '') ?? '';
++    }
++
++    /**
++     * Names for the email greeting: Parent 1 when collected, otherwise the student.
++     * The parent* keys are kept so existing templates work unchanged.
++     */
++    protected function getRecipientNames(FormDataInterface $formData) : array
++    {
++        if ($formData->has('parent1surname') || $formData->has('parent1preferredName')) {
++            return [
++                'parentTitle'         => $formData->get('parent1title'),
++                'parentPreferredName' => $formData->get('parent1preferredName'),
++                'parentSurname'       => $formData->get('parent1surname'),
++            ];
+         }
++
++        return [
++            'parentTitle'         => $formData->get('title', ''),
++            'parentPreferredName' => $formData->get('preferredName'),
++            'parentSurname'       => $formData->get('surname'),
++        ];
+     }
+ 
+     private function checkEnabled(FormBuilderInterface $builder)
+diff -ru -x README-PHASE1.md -x '*.patch' orig/src/Forms/Builder/Process/SendAcceptanceEmail.php new/src/Forms/Builder/Process/SendAcceptanceEmail.php
+--- orig/src/Forms/Builder/Process/SendAcceptanceEmail.php	2026-10-10 17:09:06.748973569 -0500
++++ new/src/Forms/Builder/Process/SendAcceptanceEmail.php	2026-10-10 17:09:11.866650449 -0500
+@@ -75,13 +75,16 @@
+             $this->sendWelcomeEmail($builder, $formData, 'acceptanceEmailStudent');
+         }
+ 
++        // The parent template is optional (forms without parent fields leave it blank)
++        $hasParentTemplate = $builder->hasConfig('acceptanceEmailParentTemplate');
++
+         // Inform Parent 1?
+-        if ($formData->getResult('informParents') == 'Y' && ($formData->has('parent1email') || $formData->has('parent1emailAlternate'))) {
++        if ($hasParentTemplate && $formData->getResult('informParents') == 'Y' && ($formData->has('parent1email') || $formData->has('parent1emailAlternate'))) {
+             $this->sendWelcomeEmail($builder, $formData, 'acceptanceEmailParent', 'parent1');
+         }
+ 
+         // Inform Parent 2?
+-        if ($formData->getResult('informParents') == 'Y' && ($formData->has('parent2email') || $formData->has('parent2emailAlternate'))) {
++        if ($hasParentTemplate && $formData->getResult('informParents') == 'Y' && ($formData->has('parent2email') || $formData->has('parent2emailAlternate'))) {
+             $this->sendWelcomeEmail($builder, $formData, 'acceptanceEmailParent', 'parent2');
+         }
+     } 
+diff -ru -x README-PHASE1.md -x '*.patch' orig/src/Forms/Builder/Process/SendSubmissionEmail.php new/src/Forms/Builder/Process/SendSubmissionEmail.php
+--- orig/src/Forms/Builder/Process/SendSubmissionEmail.php	2026-10-10 17:08:20.076964644 -0500
++++ new/src/Forms/Builder/Process/SendSubmissionEmail.php	2026-10-10 17:21:07.394992062 -0500
+@@ -89,7 +89,7 @@
+ 
+         // Setup Template 
+         $template = $this->template->setTemplateByID($builder->getConfig('submissionEmailTemplate'));
+-        $templateData = [
++        $templateData = array_merge([
+             'email'                => $builder->getConfig('accountEmail'),
+             'date'                 => Format::date(date('Y-m-d')),
+             'applicationID'        => $builder->getConfig('foreignTableID'),
+@@ -98,17 +98,14 @@
+             'studentPreferredName' => $formData->get('preferredName'),
+             'studentSurname'       => $formData->get('surname'),
+             'studentOfficialName'  => $formData->get('officialName'),
+-            'parentTitle'          => $formData->get('parent1title'),
+-            'parentPreferredName'  => $formData->get('parent1preferredName'),
+-            'parentSurname'        => $formData->get('parent1surname'),
+             'organisationAdmissionsEmail' => $this->session->get('organisationAdmissionsEmail'),
+             'organisationAdmissionsName'  => $this->session->get('organisationAdmissionsName'),
+-        ];
++        ], $this->getRecipientNames($formData));
+ 
+         // Setup the email
+         $this->mail->AddAddress($builder->getConfig('accountEmail'));
+-        if ($formData->has('parent1email')) {
+-            $this->mail->AddAddress($formData->has('parent1email'));
++        if ($formData->has('parent1email') && strtolower($formData->get('parent1email')) != strtolower($builder->getConfig('accountEmail', ''))) {
++            $this->mail->AddAddress($formData->get('parent1email'));
+         }
+ 
+         $this->mail->setDefaultSender($template->renderSubject($templateData));
+@@ -137,4 +134,26 @@
+     {
+         // Cannot unsend what has been sent...
+     }
++
++    /**
++     * Names for the email greeting. Uses Parent 1 when the form collected one,
++     * otherwise the student, so student self-applications are not greeted "Dear ,".
++     * The parent* keys are kept so existing templates work unchanged.
++     */
++    protected function getRecipientNames(FormDataInterface $formData) : array
++    {
++        if ($formData->has('parent1surname') || $formData->has('parent1preferredName')) {
++            return [
++                'parentTitle'         => $formData->get('parent1title'),
++                'parentPreferredName' => $formData->get('parent1preferredName'),
++                'parentSurname'       => $formData->get('parent1surname'),
++            ];
++        }
++
++        return [
++            'parentTitle'         => $formData->get('title', ''),
++            'parentPreferredName' => $formData->get('preferredName'),
++            'parentSurname'       => $formData->get('surname'),
++        ];
++    }
+ }
+diff -ru -x README-PHASE1.md -x '*.patch' orig/src/Forms/Builder/View/PayProcessingFeeView.php new/src/Forms/Builder/View/PayProcessingFeeView.php
+--- orig/src/Forms/Builder/View/PayProcessingFeeView.php	2026-10-10 18:15:33.990047599 -0500
++++ new/src/Forms/Builder/View/PayProcessingFeeView.php	2026-10-10 18:15:44.872946750 -0500
+@@ -51,7 +51,7 @@
+ 
+     public function getDescription() : string
+     {
+-        return __('Send a processing fee request to the parent by email.');
++        return __('Send a processing fee request to the applicant by email.');
+     }
+ 
+     public function configure(Form $form)
+diff -ru -x README-PHASE1.md -x '*.patch' orig/src/Forms/Builder/View/SendAcceptanceEmailView.php new/src/Forms/Builder/View/SendAcceptanceEmailView.php
+--- orig/src/Forms/Builder/View/SendAcceptanceEmailView.php	2026-10-10 17:08:20.085845410 -0500
++++ new/src/Forms/Builder/View/SendAcceptanceEmailView.php	2026-10-10 17:08:58.150650762 -0500
+@@ -68,8 +68,8 @@
+ 
+         $templates = $this->emailTemplateGateway->selectAvailableTemplatesByType('Admissions', 'Parent Welcome Email')->fetchKeyPair();
+         $row = $form->addRow();
+-            $row->addLabel('acceptanceEmailParentTemplate', __('Parent Acceptance Template'))->description(__('The content of email templates can be customized in System Admin > Email Templates.'));
+-            $row->addSelect('acceptanceEmailParentTemplate')->fromArray($templates)->required()->placeholder();
++            $row->addLabel('acceptanceEmailParentTemplate', __('Parent Acceptance Template'))->description(__('The content of email templates can be customized in System Admin > Email Templates.').' '.__('Leave blank for forms without parent fields.'));
++            $row->addSelect('acceptanceEmailParentTemplate')->fromArray($templates)->placeholder();
+     }
+ 
+     public function configureEdit(Form $form, FormDataInterface $data, string $id)

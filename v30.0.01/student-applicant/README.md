@@ -31,7 +31,7 @@ It also fixes these v30.0.01 bugs that affect these applications:
 - **AssignHouse**: every new student's house was written to person 1 instead. This is already fixed upstream for v31.
 - **Family page for a returning student**: when an admissions account has a family but no parent linked (for example, a student applying a second time while logged in), the Family page either crashed ("Undefined variable $families") or hid the address fields but still required them, so it could never be submitted.
 - **Submission results**: on the page an applicant sees after submitting, the "Submission Email: An email was sent to …" line only appeared on forms with a Parent 1 email, so on a student form it was missing even though the email was sent. (Staff viewing the application did see it.)
-- **Welcome emails sent to the wrong people**: on acceptance, each welcome email also went to everyone emailed before it, so a parent's username and password reached the student (and Parent 2's reached Parent 1). Still present in the development branch as of 9 October 2026.
+- **An acceptance email issue**: reported privately to the Gibbon team; details withheld until a fix is released.
 
 No database changes. The setting is stored in the form's existing configuration.
 
@@ -100,7 +100,6 @@ ORDER BY a.gibbonAdmissionsAccountID DESC LIMIT 10;
    - The student email is pre-filled with the account email.
    - Fill in a parent with a different email.
    - The confirmation goes to the student only and greets the student.
-   - Accept with both "inform" boxes ticked. The student's welcome email goes only to the student, and the parent's welcome email (with her login) goes only to the parent.
    - After acceptance, the student, parent and family are created, the account is linked to the student, and the student has a house.
 4. **The same student applies again, logged in.** An accepted student has a Gibbon login, and logging in is the route Gibbon's own message asks existing users to take. Students need the "My Application Forms" permission first (see below).
    - Log in as the student and go to People > Admissions. Under New Application Form, choose "Application by a student".
@@ -136,7 +135,6 @@ Tested on a fresh install of the official v30.0.01 release bundle with demo data
   - an accepted student applying for their own child on a parent form becomes Parent 1.
 - 20 / 20 checks of the email and fee processes against Gibbon's own classes.
 - A logged-in returning student (Student role granted "My Application Forms"): the Family page offered their family and submitted. After acceptance, Parent 1 was the parent entered and the account stayed with the student. On stock v30.0.01 the same steps made the student their own Parent 1.
-- Welcome emails, accepted with both "inform" boxes ticked: the student, Parent 1 and Parent 2 each received only their own. Stock sent Parent 1's login to the student, and Parent 2's to both.
 - Houses: all 11 students accepted with these files got a house, and person 1 was untouched.
 - Rollback restored stock v30.0.01. Stock fails the checks this fixes, its 11 accepted students got no house (each was written to person 1), and the parent-form checks pass on it too, so parent behaviour is unchanged.
 - No PHP warnings or errors from Gibbon code.

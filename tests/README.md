@@ -30,7 +30,6 @@ export GIBBON_URL=http://127.0.0.1:8088 GIBBON_DB=gibbon_test \
 python3 applicant_scenarios.py run1   # 32 checks; the argument tags this run's test addresses
 python3 scenarios.py run1             # 14 checks
 python3 housetest.py run1             # the student gets the house, person 1 does not
-python3 welcome_test.py run1          # each welcome email goes only to its own person
 GIBBON_STUDENT_PASS='...' python3 loggedin_test.py <accepted student username> 000003 run1
 ```
 
@@ -41,5 +40,4 @@ GIBBON_STUDENT_PASS='...' python3 loggedin_test.py <accepted student username> 0
 Expected on stock v30.0.01, for comparison:
 - `applicant_scenarios.py` and `scenarios.py` fail the checks this package fixes;
 - `housetest.py` shows the house on person 1;
-- `welcome_test.py` shows the parent's login also sent to the student;
 - `loggedin_test.py` makes the student their own Parent 1.

@@ -1,41 +1,14 @@
 # Draft upstream bug reports
 
-Three v30.0.01 bugs found while testing student applications. Each one affects any school, and
-each was still present in the development branch on 9 October 2026 (commit `1d83c2b`). Line
+Two v30.0.01 bugs found while testing student applications, for GitHub issues. Each one affects any
+school, and each was still present in the development branch on 9 October 2026 (commit `1d83c2b`).
+A third, an acceptance email issue, was reported privately to the Gibbon team, following Gibbon's
+security policy. Line
 numbers are from that commit. Each fix is in `v30.0.01/student-applicant` and adds no new strings.
 
 ---
 
-## 1. Acceptance welcome emails are also sent to everyone emailed before them
-
-**Where:** `src/Forms/Builder/Process/SendAcceptanceEmail.php`, `sendWelcomeEmail()` (line 94).
-
-**Steps:**
-1. Use a form with parent fields and acceptance emails set up (both templates chosen).
-2. Submit an application with a student email, Parent 1 and Parent 2, each with a different address.
-3. Accept it with both "Automatically inform student" and "Automatically inform parents" ticked.
-
-**Expected:** three welcome emails, each to one person, with that person's own username and password.
-
-**Actual:**
-- The student's email goes to the student.
-- Parent 1's email, with Parent 1's password, goes to the student and Parent 1.
-- Parent 2's email goes to the student, Parent 1 and Parent 2.
-
-**Cause:** `process()` calls `sendWelcomeEmail()` up to three times with the same mailer. Each call
-adds its recipients (lines 120 to 122), but the recipients from the previous call are never cleared.
-
-**Fix:** clear the recipients at the start of each email, as `NotificationSender` already does:
-
-```php
-        // Setup the email
-        $this->mail->clearAllRecipients();
-        $this->mail->SetFrom(...);
-```
-
----
-
-## 2. Family page fails for an admissions account that has a family but no person
+## 1. Family page fails for an admissions account that has a family but no person
 
 **Where:** `src/Forms/Builder/Fields/FamilyFields.php`, `addFieldToForm()` (lines 121 to 140) and
 `shouldValidate()` (line 231).
@@ -70,7 +43,7 @@ Uncaught Exception: TypeError - current(): Argument #1 ($array) must be of type 
 
 ---
 
-## 3. "Submission Email" line missing after submitting a form without a Parent 1 email
+## 2. "Submission Email" line missing after submitting a form without a Parent 1 email
 
 **Where:** `src/Forms/Builder/View/SendSubmissionEmailView.php`, `display()` (line 72).
 

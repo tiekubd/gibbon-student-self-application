@@ -36,7 +36,7 @@ Found while testing; they affect every school, not only student applicants.
 
 | Bug | Development branch (9 Oct 2026) |
 |---|---|
-| Acceptance welcome emails also go to everyone emailed before them, so a parent's login reaches the student | Still present |
+| An acceptance email issue | Reported privately to the Gibbon team; details withheld until a fix is released |
 | Family page crashes, or cannot be submitted, for an account with a family but no parent linked | Still present |
 | "Submission Email" line missing from the applicant's results page on forms without a Parent 1 email | Still present |
 | Auto House Assign writes every new student's house to person 1 | Fixed ([PR #2121](https://github.com/GibbonEdu/core/pull/2121)) |

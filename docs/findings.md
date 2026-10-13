@@ -44,7 +44,7 @@ Eleven of 18 findings are fixed in the package; two are school settings; five wa
 | 10 | A family-less applicant can choose "Family" for invoices; nothing checks it | Open (Finance) |
 | 11 | "No parent fields" is the wrong signal for "the student is applying" | Fixed (explicit setting) |
 | 12 | A logged-in student applying again is silently made their own Parent 1 | Fixed |
-| 13 | Each acceptance welcome email also goes to everyone emailed before it, so Parent 1's login reaches the student | Fixed; still in development branch |
+| 13 | An acceptance email issue, reported privately to the Gibbon team; details withheld until a fix is released | Fixed |
 | 14 | Family page fails for an account with a family but no person: a fatal error for staff, or hidden address fields still required | Fixed; still in development branch |
 | 15 | The "Submission Email" line is missing from the applicant's results page on forms without a Parent 1 email | Fixed; still in development branch |
 | 16 | Auto House Assign writes every new student's house to person 1 | Fixed; fixed upstream for v31 |
@@ -52,7 +52,6 @@ Eleven of 18 findings are fixed in the package; two are school settings; five wa
 | 18 | Applying again creates a second student record, and re-entered parents become new records | Open (Phase 2b) |
 
 - **#12:** a logged-in user's own record becomes Parent 1 through a hidden field. Right for a parent, wrong for an accepted student applying again. Reproduced on stock v30.0.01.
-- **#13:** `sendWelcomeEmail()` reuses one mailer and never calls `clearAllRecipients()`, which Gibbon already uses elsewhere.
 - **#14:** `FamilyFields` hides the address fields on one test (person or family) but validates them on another (person only), and only sets `$families` in one branch. Reproduced on stock in staff Edit.
 - **#15:** the view looks for `submissionEmail` in form data, but it is recorded as a result. Staff see the line because their view is read-only.
 - **#18:** for a student, a second application is always the same person (next intake, another programme, postgraduate study), but Gibbon treats each one as a new child.
@@ -87,7 +86,6 @@ Every check passed with the package; stock v30.0.01 fails exactly the checks it 
 | 14 earlier checks: student form without parents, Sample form, adult student as Parent 1 on a parent form | Same | 14 / 14 |
 | Email and fee processes against Gibbon's own classes | Harness | 20 / 20 |
 | Logged-in student applying again | Same site | Parent 1 is the parent entered; stock makes the student their own Parent 1 |
-| Welcome emails, both "inform" boxes ticked | Same site | Each person gets only their own; stock sends Parent 1's login to the student |
 | Houses | Same site | Every student gets a house; stock writes it to person 1 |
 | Install script: check, backup, verify, rollback | Test site and a copy of stock | All work; rollback restores stock exactly |
 | Seven hand tests: Form Builder setting, forms list, student with parents, same student again logged in, parent form, student without parents, Sample form | Fresh v30.0.01 + demo data on a live host | All passed |
@@ -97,7 +95,7 @@ No PHP warnings or errors from Gibbon code in any run.
 ## Next steps
 
 1. **Upstream discussion** of the setting in the Feature Requests thread, before any pull request.
-2. **Bug reports** for #13, #14 and #15, separately from the feature; drafts are in the repository.
+2. **Bug reports** for #14 and #15 as GitHub issues, separately from the feature, and #13 privately.
 3. **Phase 2b:** on acceptance, reuse the existing student when the account already belongs to one, and match parents already in the family by email (#17, #18).
 4. **Phase 3, Finance:** `invoiceTo = 'Student'` reading the student's record live, a "myself" payment option, and the student as an invoice recipient (#2, #7, #8, #10).
 
@@ -107,7 +105,7 @@ Nothing planned upstream conflicts with this work, and the roadmap's Admissions 
 
 - **Roadmap:** the Admissions module is "In Progress": more reporting and statistics, and pre-application and post-application forms.
 - **Separate forms:** the two-option design follows the existing advice to create separate application forms for different situations.
-- **Development branch (9 Oct 2026):** AssignHouse is fixed ([PR #2121](https://github.com/GibbonEdu/core/pull/2121)); #13, #14 and #15 are still present.
+- **Development branch (9 Oct 2026):** AssignHouse is fixed ([PR #2121](https://github.com/GibbonEdu/core/pull/2121)); #14 and #15 are still present; #13 is reported privately.
 - **Student invoicing:** in 2020 Ross said invoicing students directly was not possible but that he would include it if someone implemented it.
 - **Code style:** Sandra's review of PR #2121 asked for a single gateway query instead of several.
 - **Dates:** v31 string freeze 20 Oct 2026, release 20 Nov 2026; v32 string freeze 20 Apr 2027. The setting adds new strings, so it would target v32; the bug fixes add none.

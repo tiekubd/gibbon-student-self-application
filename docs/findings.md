@@ -45,8 +45,8 @@ Eleven of 18 findings are fixed in the package; two are school settings; five wa
 | 11 | "No parent fields" is the wrong signal for "the student is applying" | Fixed (explicit setting) |
 | 12 | A logged-in student applying again is silently made their own Parent 1 | Fixed |
 | 13 | An acceptance email issue, reported privately to the Gibbon team; details withheld until a fix is released | Fixed |
-| 14 | Family page fails for an account with a family but no person: a fatal error for staff, or hidden address fields still required | Fixed; still in development branch |
-| 15 | The "Submission Email" line is missing from the applicant's results page on forms without a Parent 1 email | Fixed; still in development branch |
+| 14 | Family page fails for an account with a family but no person: a fatal error for staff, or hidden address fields still required | Fixed; reported in [#2183](https://github.com/GibbonEdu/core/issues/2183) |
+| 15 | The "Submission Email" line is missing from the applicant's results page on forms without a Parent 1 email | Fixed; reported in [#2184](https://github.com/GibbonEdu/core/issues/2184) |
 | 16 | Auto House Assign writes every new student's house to person 1 | Fixed; fixed upstream for v31 |
 | 17 | Students lack "My Application Forms", so a student who logs in as the admissions page asks cannot find the form | Setting (Manage Permissions) |
 | 18 | Applying again creates a second student record, and re-entered parents become new records | Open (Phase 2b) |
@@ -95,7 +95,7 @@ No PHP warnings or errors from Gibbon code in any run.
 ## Next steps
 
 1. **Upstream discussion** of the setting in the Feature Requests thread, before any pull request.
-2. **Bug reports** for #14 and #15 as GitHub issues, separately from the feature, and #13 privately.
+2. **Bug reports:** #14 filed as [#2183](https://github.com/GibbonEdu/core/issues/2183), #15 as [#2184](https://github.com/GibbonEdu/core/issues/2184), and #13 reported privately.
 3. **Phase 2b:** on acceptance, reuse the existing student when the account already belongs to one, and match parents already in the family by email (#17, #18).
 4. **Phase 3, Finance:** `invoiceTo = 'Student'` reading the student's record live, a "myself" payment option, and the student as an invoice recipient (#2, #7, #8, #10).
 

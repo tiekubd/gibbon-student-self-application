@@ -1,6 +1,6 @@
-# Draft upstream bug reports
+# Upstream bug reports
 
-Two v30.0.01 bugs found while testing student applications, for GitHub issues. Each one affects any
+Two v30.0.01 bugs found while testing student applications, filed as GitHub issues. Each one affects any
 school, and each was still present in the development branch on 9 October 2026 (commit `1d83c2b`).
 A third, an acceptance email issue, was reported privately to the Gibbon team, following Gibbon's
 security policy. Line
@@ -9,6 +9,8 @@ numbers are from that commit. Each fix is in `v30.0.01/student-applicant` and ad
 ---
 
 ## 1. Family page fails for an admissions account that has a family but no person
+
+Filed as [#2183](https://github.com/GibbonEdu/core/issues/2183).
 
 **Where:** `src/Forms/Builder/Fields/FamilyFields.php`, `addFieldToForm()` (lines 121 to 140) and
 `shouldValidate()` (line 231).
@@ -44,6 +46,8 @@ Uncaught Exception: TypeError - current(): Argument #1 ($array) must be of type 
 ---
 
 ## 2. "Submission Email" line missing after submitting a form without a Parent 1 email
+
+Filed as [#2184](https://github.com/GibbonEdu/core/issues/2184).
 
 **Where:** `src/Forms/Builder/View/SendSubmissionEmailView.php`, `display()` (line 72).
 

@@ -28,7 +28,7 @@ kinds of applicant publishes two forms, named so applicants can tell them apart.
 | [`v30.0.01/hotfix-assignhouse`](v30.0.01/hotfix-assignhouse) | Only the AssignHouse fix and a repair script, for schools that want that fix alone. Already in the package. |
 | [`patches`](patches) | The same changes as unified diffs against v30.0.01. |
 | [`tests`](tests) | The test harness and end-to-end scripts used to verify the package. |
-| [`docs`](docs) | Findings, and draft upstream bug reports. |
+| [`docs`](docs) | Findings, and the upstream bug reports. |
 
 ## v30 bugs fixed on the way
 
@@ -37,11 +37,11 @@ Found while testing; they affect every school, not only student applicants.
 | Bug | Development branch (9 Oct 2026) |
 |---|---|
 | An acceptance email issue | Reported privately to the Gibbon team; details withheld until a fix is released |
-| Family page crashes, or cannot be submitted, for an account with a family but no parent linked | Still present |
-| "Submission Email" line missing from the applicant's results page on forms without a Parent 1 email | Still present |
+| Family page crashes, or cannot be submitted, for an account with a family but no parent linked | Still present; reported in [#2183](https://github.com/GibbonEdu/core/issues/2183) |
+| "Submission Email" line missing from the applicant's results page on forms without a Parent 1 email | Still present; reported in [#2184](https://github.com/GibbonEdu/core/issues/2184) |
 | Auto House Assign writes every new student's house to person 1 | Fixed ([PR #2121](https://github.com/GibbonEdu/core/pull/2121)) |
 
-Draft reports: [docs/upstream-bug-reports.md](docs/upstream-bug-reports.md).
+Reports as filed: [docs/upstream-bug-reports.md](docs/upstream-bug-reports.md).
 
 ## Status
 

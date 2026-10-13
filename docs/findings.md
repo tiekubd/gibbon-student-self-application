@@ -1,48 +1,70 @@
-# Student Self-Application: Findings and Fixes
+# Students Applying for Themselves: Findings and Fixes
 
-Oct 10, 2026 · Tieku Bortei-Doku, High Point Education Solutions
+Oct 12, 2026 · Tieku Bortei-Doku, High Point Education Solutions
 
-A student can already apply to Gibbon v30.0.01 without parent fields and be accepted cleanly, but testing found ten gaps. Phases 1 and 2 close the admissions gaps and are confirmed live on v30.0.01; billing the student directly (Finance) still needs agreement upstream.
+One setting per application form, "Who completes this application?", lets a student apply for themselves on Gibbon v30.0.01, including on forms that still collect parent details. It passed every automated check and seven hand tests on a fresh v30.0.01 site with demo data. Testing also found four v30 bugs, three still in the development branch. Billing the student directly (Finance) still needs agreement upstream.
 
-## Test setup
+## The design
 
-The test form "Student Self-Application" is a copy of the Sample Application Form with the Family page removed, the home address fields moved to the Student page, student email required, `createParents = N`, and the parent acceptance email settings removed. It was built by SQL script on a Gibbon v30.0.01 test instance.
+Each form says who fills it in, in Form Builder > Active Features > Applicant. Nothing is inferred from which fields a form has.
 
-| Run | Applicant | Config | Payment choice | What it tested |
-| --- | --- | --- | --- | --- |
-| A | Mark Spencer | `createFamily = Y` | Family | Default path: submit, accept, invoice |
-| B | Ama Mensah | `createFamily = N` | Family | Acceptance with no family at all |
-| C | Mark Spencer (invoicee edited) | n/a | Company, filled with the student's own details | The Company-fields workaround from the forum thread |
+| Setting | Behaviour |
+| --- | --- |
+| A parent or guardian, for a student | The default and Gibbon's existing behaviour. Every form never set behaves this way. |
+| The student, for themselves | The student is the applicant. Parent sections can stay on the form (contacts, financial aid details); those parents are still created and joined to the family. |
 
-Related discussion: [Admissions and billing for adult students](https://ask.gibbonedu.org/t/admissions-and-billing-for-adult-students-feasibility/15478).
+A school that accepts both publishes two forms, named so applicants can tell them apart, such as "Application by a parent or guardian" and "Application by a student". Gibbon's admissions page already lists every active form by name and description.
+
+Inferring "student applicant" from missing parent fields was tried first and dropped: some institutions have the student apply but still collect parent information. A third option, "let the applicant choose" with a question on the form, was built and also dropped, in favour of separate forms.
+
+The rule lives in one class, `ApplicantType`, and every automated step follows it:
+
+- **Submission email:** to the admissions account, plus the applicant's own email if different (Parent 1's or the student's). The greeting names the applicant.
+- **Processing fee request:** to the applicant, same greeting.
+- **Admissions account:** on acceptance, linked to Parent 1 when a parent applied, or to the student when the student applied.
+- **Student email:** pre-filled from the account email when the student applies.
+- **Parent 1:** filled from the account only when a parent applies, so a student is never recorded as their own parent.
+- **Acceptance:** the Parent Acceptance Template is optional; "inform parents" only appears when the form has parent fields.
 
 ## Findings
 
-Three findings (#1, #3, #4) are small form builder fixes and one (#6) is configuration; the account link (#5, #9) and Finance (#2, #7, #8, #10) are the structural ones.
+Eleven of 18 findings are fixed in the package; two are school settings; five wait for upstream discussion (Finance, and reusing records on a repeat application).
 
-| # | Finding | Evidence | Code location | Phase |
-| --- | --- | --- | --- | --- |
-| 1 | Processing fee can never run on a student-only form: it requires `parent1email` | Form Builder lists it under Inactive Features: "Payment Gateway, parent1email" | `src/Forms/Builder/Process/PayProcessingFee.php`, `verify()` | 1 |
-| 2 | Payment choice offers only Family or Company; help text speaks of "your family's contact preferences" | Application form, Final Details page | `src/Forms/Builder/Fields/FinanceFields.php`; `gibbonFinanceInvoicee.invoiceTo` enum | 3 |
-| 3 | Submission email greets "Dear ," | Confirmation email for application 1 | `SendSubmissionEmail.php`: template data only passes `parent1title`, `parent1preferredName`, `parent1surname` | 1 |
-| 4 | A student-only form cannot save its config without choosing a Parent Acceptance Template; the accept page then offers to inform parents | Template `000012` reappeared after Step 1 removed it; "inform parents" checkbox on accept page | `src/Forms/Builder/View/SendAcceptanceEmailView.php`, `->required()` on `acceptanceEmailParentTemplate` | 1 |
-| 5 | Admissions account links to the family, never to the student | Account 1: `gibbonPersonID` NULL, `gibbonFamilyID` 854 | `modules/Admissions/applications_manage_acceptProcess.php`: only `gibbonPersonIDParent1` is linked | 2 |
-| 6 | The applicant's real email is replaced by the default `[username]@localhost.test` and moved to Email Alternate | Mark: `mspencer@localhost.test` / `applicant@example.com` | `newStudentDetails` config (configuration, not code) | config |
-| 7 | Invoice recipients come only from Company, family adults, or CC Self; the student is never a candidate | Issue screen: "There are no family members available to send this receipt to." | `modules/Finance/src/Forms/FinanceFormFactory.php`, `createInvoiceEmailCheckboxes`; sending in `modules/Finance/moduleFunctions.php` | 3 |
-| 8 | The Company workaround duplicates the student's details into four required fields, which drift | Invoice shows 100 Main St; application said 200 Main St | Same as #7 | 3 |
-| 9 | With `createFamily = N` the admissions account is linked to nobody | Account 2: `gibbonPersonID` and `gibbonFamilyID` both NULL | Same as #5 | 2 |
-| 10 | A family-less applicant can choose "Family" for invoices; nothing checks it | Invoicee 393: `invoiceTo = Family`, student in 0 families | `CreateInvoicee.php` | 3 |
+| # | Finding | Status |
+| --- | --- | --- |
+| 1 | The processing fee can never run on a form without `parent1email` | Fixed |
+| 2 | Payment offers only Family or Company; there is no "myself" | Open (Finance) |
+| 3 | The submission email greets "Dear ," when there is no parent, and passed a boolean instead of Parent 1's address | Fixed |
+| 4 | A form without parents cannot save its config without a Parent Acceptance Template; the accept page offers to inform parents | Fixed |
+| 5 | The admissions account is linked to the family, never to the student | Fixed |
+| 6 | The applicant's own email is replaced by `[username]@localhost.test` and moved to Email Alternate | Setting (`newStudentDetails`) |
+| 7 | Invoice recipients never include the student | Open (Finance) |
+| 8 | The Company workaround copies the student's details into four fields, which drift | Open (Finance) |
+| 9 | With Create Family off, the account is linked to nobody | Fixed (linked to the student) |
+| 10 | A family-less applicant can choose "Family" for invoices; nothing checks it | Open (Finance) |
+| 11 | "No parent fields" is the wrong signal for "the student is applying" | Fixed (explicit setting) |
+| 12 | A logged-in student applying again is silently made their own Parent 1 | Fixed |
+| 13 | Each acceptance welcome email also goes to everyone emailed before it, so Parent 1's login reaches the student | Fixed; still in development branch |
+| 14 | Family page fails for an account with a family but no person: a fatal error for staff, or hidden address fields still required | Fixed; still in development branch |
+| 15 | The "Submission Email" line is missing from the applicant's results page on forms without a Parent 1 email | Fixed; still in development branch |
+| 16 | Auto House Assign writes every new student's house to person 1 | Fixed; fixed upstream for v31 |
+| 17 | Students lack "My Application Forms", so a student who logs in as the admissions page asks cannot find the form | Setting (Manage Permissions) |
+| 18 | Applying again creates a second student record, and re-entered parents become new records | Open (Phase 2b) |
 
-Also spotted in source, not yet triggered: `SendSubmissionEmail` calls `AddAddress($formData->has('parent1email'))`, passing a boolean instead of the address.
+- **#12:** a logged-in user's own record becomes Parent 1 through a hidden field. Right for a parent, wrong for an accepted student applying again. Reproduced on stock v30.0.01.
+- **#13:** `sendWelcomeEmail()` reuses one mailer and never calls `clearAllRecipients()`, which Gibbon already uses elsewhere.
+- **#14:** `FamilyFields` hides the address fields on one test (person or family) but validates them on another (person only), and only sets `$families` in one branch. Reproduced on stock in staff Edit.
+- **#15:** the view looks for `submissionEmail` in form data, but it is recorded as a result. Staff see the line because their view is read-only.
+- **#18:** for a student, a second application is always the same person (next intake, another programme, postgraduate study), but Gibbon treats each one as a new child.
 
-## Predictions that turned out wrong
+## Pre-fill and logging in
 
-More already works without parents than the source suggested at first glance.
+Two behaviours that look like gaps are Gibbon's design, unchanged here.
 
-- **Submission email does send.** It requires `email` *or* `parent1email` (`requiredFieldLogic = 'ANY'`) and always goes to the admissions account email. Only the greeting is broken (#3).
-- **Family naming falls back to the student.** `CreateFamily::generateFamilyName()` uses the student's preferred name and surname when there are no parents, giving "Mark Spencer".
-- **Acceptance email works for the student.** `SendAcceptanceEmail` also uses `ANY` logic; the welcome email reached the student.
-- **"Could not be enrolled" is not a parent issue.** `EnrolStudent` returns early when no form group is chosen, on any form.
+- **Typing an email that already has an account** starts a new application but shows no earlier data, since anyone could type someone else's email. Pre-fill follows "Continue an Existing Application Form" and the emailed link, or logging in.
+- **The student's own details are not pre-filled** on a second application, because the Sample form marks only family, parent and payment fields for pre-fill. A school can mark student fields in Form Builder.
+
+The admissions page asks existing users to log in first "to prevent creation of duplicate data". That holds for parents; for students it needs #17 and #18 first.
 
 ## Workarounds available today
 
@@ -50,44 +72,45 @@ An institution where every applicant is an adult can run on v30 now with configu
 
 | Workaround | How | Limits |
 | --- | --- | --- |
-| Company fields as "myself" | Applicant chooses Company and enters their own name, address and email. Proven in Run C: the invoice email arrived. | Four required fields re-type data Gibbon already holds; copies drift from the student record (#8) |
+| Company fields as "myself" | Applicant chooses Company and enters their own name, address and email. Tested on stock v30: the invoice email arrived. | Four required fields re-type data Gibbon already holds; copies drift from the student record (#8) |
 | String Replacement | System Admin > String Replacement, **Whole** mode: `Company` to `Myself`, plus one entry per label ("Company Name", "Company Emails", and so on) and the help text. Also renames the invoice heading to "Invoice To (Myself)". | Applies system-wide, so wrong for schools that also take parent applications. Partial mode would produce "Myself Name". Labels only: the data duplication remains |
 | Database triggers | Copy the student's details into the company fields on insert and update (the approach in the forum thread) | Outside Gibbon's code; invisible to admins; must survive upgrades |
 | Form group per program | One form group per year group, so enrolment and invoicing work | Form groups are still required by Finance queries |
 
-## Phases 1 and 2
+## Testing
 
-Phase 1 makes the form builder applicant-aware, with no schema change; Phase 2 links the account to the student and Phase 3 adds a Student option to Finance.
+Every check passed with the package; stock v30.0.01 fails exactly the checks it fixes.
 
-1. Done: no `applicantType` setting after all. Each process decides from the form itself (parent fields present or not), so a setting can never contradict the fields.
-2. Done: `PayProcessingFee` sends to `parent1email`, else the student's `email`, else the account email, and becomes available on student-only forms (#1).
-3. Done: `SendSubmissionEmail` and `PayProcessingFee` fill the greeting from the student when no parent was collected; existing templates unchanged (#3). The `AddAddress(true)` bug is fixed.
-4. Done: Parent Acceptance Template is optional; "inform parents" only appears on forms with `parent1email`; `SendAcceptanceEmail` skips parent emails with no template (#4).
-5. Done in Phase 2 (below), with a guard, because `applications_manage_acceptProcess.php` treats an account's `gibbonPersonID` as Parent 1 on later applications, so linking the account to the student (#5, #9) would otherwise make a returning student their own parent.
-6. Phase 3, for upstream discussion: `invoiceTo = 'Student'` reading name, address and email live from `gibbonPerson`; a "Myself" payment option; a Student branch in the recipient builder and sender (#2, #7, #8, #10).
+| Test | Where | Result |
+| --- | --- | --- |
+| 32 applicant checks: student form with parent sections (twice), parent form (two children, and an accepted student for their own child), forms list, Form Builder setting | Fresh v30.0.01 + demo data, over HTTP | 32 / 32 |
+| 14 earlier checks: student form without parents, Sample form, adult student as Parent 1 on a parent form | Same | 14 / 14 |
+| Email and fee processes against Gibbon's own classes | Harness | 20 / 20 |
+| Logged-in student applying again | Same site | Parent 1 is the parent entered; stock makes the student their own Parent 1 |
+| Welcome emails, both "inform" boxes ticked | Same site | Each person gets only their own; stock sends Parent 1's login to the student |
+| Houses | Same site | Every student gets a house; stock writes it to person 1 |
+| Install script: check, backup, verify, rollback | Test site and a copy of stock | All work; rollback restores stock exactly |
+| Seven hand tests: Form Builder setting, forms list, student with parents, same student again logged in, parent form, student without parents, Sample form | Fresh v30.0.01 + demo data on a live host | All passed |
 
-Phase 1 was checked with a 17-case harness against v30.0.01's own classes: all pass on the new files; on the originals, 9 fail, reproducing "Dear ,", the boolean recipient and the unsent fee request, while every parent-form case passes on both.
+No PHP warnings or errors from Gibbon code in any run.
 
-Phase 2 (built, tested locally, confirmed live on the v30.0.01 test instance): on forms without parent fields, acceptance links the admissions account to the student, and Student Contact > Email is pre-filled from the account email. The account's person is never treated as Parent 1 when the form has no parent fields and that person is a Student, so a returning student is not recorded as their own parent; on a parent form an accepted student is Parent 1. Tested end to end on the official v30.0.01 bundle: 14 / 14 checks pass; 10 / 14 on stock v30; linking without the guard makes the student their own Parent 1. Known limitation, unchanged from v30: a second accepted application creates a second student record.
+## Next steps
 
-## Related bug: Auto House Assign (v30.0.01)
-
-In v30.0.01 every accepted student's house is written to person 1 (usually the first admin), and the student gets none. `AssignHouse` passes `$formData->has('gibbonPersonIDStudent')` (true, read as ID 1) to `userGateway->update()` in both `process()` and `rollback()`. It affects every v30 school using Auto House Assign, with or without these changes.
-
-- Already fixed upstream in the development branch, as part of the sibling-aware house assignment ([PR #2121](https://github.com/GibbonEdu/core/pull/2121)); no report needed.
-- For v30.0.01: a two-word hotfix (`has` to `get`), reproduced and verified on the release bundle, plus a repair script that restores each accepted student's house from their application result.
-- On the test instance: six students repaired, person 1's house cleared, and a new acceptance confirmed the student gets the house.
+1. **Upstream discussion** of the setting in the Feature Requests thread, before any pull request.
+2. **Bug reports** for #13, #14 and #15, separately from the feature; drafts are in the repository.
+3. **Phase 2b:** on acceptance, reuse the existing student when the account already belongs to one, and match parents already in the family by email (#17, #18).
+4. **Phase 3, Finance:** `invoiceTo = 'Student'` reading the student's record live, a "myself" payment option, and the student as an invoice recipient (#2, #7, #8, #10).
 
 ## Upstream context
 
-Nothing planned upstream conflicts with this work, but the roadmap's Admissions item is the design to fit around, so the next step is a Feature Requests post, not a pull request.
+Nothing planned upstream conflicts with this work, and the roadmap's Admissions item is the design to fit around, so the next step is a Feature Requests discussion, not a pull request.
 
-- **Roadmap:** the Admissions module is "In Progress": more reporting and statistics, and "the ability to handle pre-application and post-application forms". No version given. Feature requests go in the forum's Feature Requests category.
-- **v31 code (development branch):** only three overlaps with the files changed here, none conflicting: a milestones warning on the accept page, a `require` path change in the accept process, and the house rework above. The other eight files are identical to v30.0.01.
-- **Optional admissions email:** in May 2025 Sandra said she would look at making the admissions account email optional for staff-entered applications. Not landed yet; Phase 2's pre-fill simply does nothing without an account email.
+- **Roadmap:** the Admissions module is "In Progress": more reporting and statistics, and pre-application and post-application forms.
+- **Separate forms:** the two-option design follows the existing advice to create separate application forms for different situations.
+- **Development branch (9 Oct 2026):** AssignHouse is fixed ([PR #2121](https://github.com/GibbonEdu/core/pull/2121)); #13, #14 and #15 are still present.
 - **Student invoicing:** in 2020 Ross said invoicing students directly was not possible but that he would include it if someone implemented it.
-- **Code style:** Sandra's review of PR #2121 asked for a single gateway query instead of several. The upstream version of Phase 2's role check should follow that.
-- **Dates:** v31 string freeze 20 Oct 2026, release 20 Nov 2026; v32 string freeze 20 Apr 2027. Changes with new wording (Phase 1.1 text, a "Myself" option, Finance) would target v32.
+- **Code style:** Sandra's review of PR #2121 asked for a single gateway query instead of several.
+- **Dates:** v31 string freeze 20 Oct 2026, release 20 Nov 2026; v32 string freeze 20 Apr 2027. The setting adds new strings, so it would target v32; the bug fixes add none.
 
 ## Sources
 

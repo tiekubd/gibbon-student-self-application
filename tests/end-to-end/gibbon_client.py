@@ -42,18 +42,23 @@ class FormParser(HTMLParser):
         elif tag == "select" and name:
             self.select = name
             self.cur["selects"][name] = []
+            self.select_chosen = False
             self.cur["fields"].setdefault(name, "")
         elif tag == "option" and self.select:
             v = a.get("value", "")
             self.cur["selects"][self.select].append(v)
             if "selected" in a:
                 self.cur["fields"][self.select] = v
+                self.select_chosen = True
         elif tag == "textarea" and name:
             self.textarea = name
             self.cur["fields"].setdefault(name, "")
 
     def handle_endtag(self, tag):
         if tag == "select":
+            # Like a browser: with no option marked selected, the first option is the value
+            if self.select and self.cur is not None and not getattr(self, "select_chosen", True) and self.cur["selects"].get(self.select):
+                self.cur["fields"][self.select] = self.cur["selects"][self.select][0]
             self.select = None
         if tag == "textarea":
             self.textarea = None
@@ -77,7 +82,7 @@ class Client:
         if data is not None:
             body = urllib.parse.urlencode(data, doseq=True).encode()
         for _ in range(10):
-            req = urllib.request.Request(url, data=body)
+            req = urllib.request.Request(url.replace(" ", "%20"), data=body)
             try:
                 resp = self.opener.open(req)
                 return url, resp.read().decode("utf-8", "replace")

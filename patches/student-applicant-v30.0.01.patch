@@ -1,0 +1,1155 @@
+diff -ruN a/modules/Activities/activities_paymentProcessBulk.php b/modules/Activities/activities_paymentProcessBulk.php
+--- a/modules/Activities/activities_paymentProcessBulk.php	2026-10-24 16:34:48.698632557 -0500
++++ b/modules/Activities/activities_paymentProcessBulk.php	2026-10-24 16:34:48.703932414 -0500
+@@ -143,7 +143,8 @@
+                                         $invoiceFail = false;
+                                         try {
+                                             $dataInvoice = array('gibbonSchoolYearID' => $session->get('gibbonSchoolYearID'), 'gibbonFinanceInvoiceeID' => $rowCheck2['gibbonFinanceInvoiceeID'], 'gibbonFinanceBillingScheduleID' => $action, 'notes' => '', 'key' => $key, 'gibbonPersonIDCreator' => $session->get('gibbonPersonID'));
+-                                            $sqlInvoice = "INSERT INTO gibbonFinanceInvoice SET gibbonSchoolYearID=:gibbonSchoolYearID, gibbonFinanceInvoiceeID=:gibbonFinanceInvoiceeID, invoiceTo='Family', billingScheduleType='Scheduled', gibbonFinanceBillingScheduleID=:gibbonFinanceBillingScheduleID, notes=:notes, `key`=:key, status='Pending', separated='N', gibbonPersonIDCreator=:gibbonPersonIDCreator, timeStampCreator='".date('Y-m-d H:i:s')."'";
++                                            $dataInvoice['invoiceTo'] = ($rowCheck2['invoiceTo'] == 'Student') ? 'Student' : 'Family';
++                                            $sqlInvoice = "INSERT INTO gibbonFinanceInvoice SET gibbonSchoolYearID=:gibbonSchoolYearID, gibbonFinanceInvoiceeID=:gibbonFinanceInvoiceeID, invoiceTo=:invoiceTo, billingScheduleType='Scheduled', gibbonFinanceBillingScheduleID=:gibbonFinanceBillingScheduleID, notes=:notes, `key`=:key, status='Pending', separated='N', gibbonPersonIDCreator=:gibbonPersonIDCreator, timeStampCreator='".date('Y-m-d H:i:s')."'";
+                                             $resultInvoice = $connection2->prepare($sqlInvoice);
+                                             $resultInvoice->execute($dataInvoice);
+                                         } catch (PDOException $e) {
+diff -ruN a/modules/Admissions/applicationForm.php b/modules/Admissions/applicationForm.php
+--- a/modules/Admissions/applicationForm.php	2026-10-24 16:34:48.633516047 -0500
++++ b/modules/Admissions/applicationForm.php	2026-10-24 16:34:48.635385815 -0500
+@@ -30,6 +30,7 @@
+ use Gibbon\Domain\Admissions\AdmissionsApplicationGateway;
+ use Gibbon\Domain\System\SettingGateway;
+ use Gibbon\Module\Admissions\ApplicationBuilder;
++use Gibbon\Forms\Builder\ApplicantType;
+ 
+ $proceed = false;
+ $public = false;
+@@ -110,9 +111,11 @@
+     $formData = $container->get(ApplicationFormStorage::class)->setContext($formBuilder->getFormID(), $formBuilder->getPageID(), 'gibbonAdmissionsAccount', $account['gibbonAdmissionsAccountID'], $account['email']);
+     
+     $formData->load($identifier);
++    // The account's person is only Parent 1 when a parent is applying (see ApplicantType)
++    $accountPersonID = !$public ? ApplicantType::accountPersonForForm($formBuilder, $formData, $account['gibbonPersonID']) : '';
+     $formBuilder->addConfig([
+         'foreignTableID' => $formData->identify($identifier),
+-        'gibbonPersonID' => !$public ? $account['gibbonPersonID'] : '',
++        'gibbonPersonID' => $accountPersonID,
+         'gibbonFamilyID' => !$public ? $account['gibbonFamilyID'] : '',
+         'invalid' => !empty($_GET['invalid']) ? explode(',', $_GET['invalid']) : [],
+     ]);
+@@ -142,7 +145,8 @@
+     if ($incomplete && !empty($account)) {
+         $formPrefill = $container->get(FormPrefill::class)
+             ->loadApplicationData($admissionsAccountGateway, $admissionsApplicationGateway, $gibbonFormID, $accessID, $accessToken)
+-            ->loadPersonalData($admissionsAccountGateway, $account['gibbonPersonID'], $accessID, $accessToken)
++            ->loadPersonalData($admissionsAccountGateway, ApplicantType::accountPersonForForm($formBuilder, $formData, $account['gibbonPersonID']), $accessID, $accessToken)
++            ->setAccountEmail($account['email'] ?? '')
+             ->prefill($formBuilder, $formData, $pageNumber, $values);
+ 
+         if ($formPrefill->isPrefilled()) {
+diff -ruN a/modules/Admissions/applicationFormProcess.php b/modules/Admissions/applicationFormProcess.php
+--- a/modules/Admissions/applicationFormProcess.php	2026-10-24 16:34:48.643331811 -0500
++++ b/modules/Admissions/applicationFormProcess.php	2026-10-24 16:34:48.645049067 -0500
+@@ -26,6 +26,7 @@
+ use Gibbon\Forms\Builder\Processor\FormProcessorFactory;
+ use Gibbon\Forms\Builder\Storage\ApplicationFormStorage;
+ use Gibbon\Domain\Admissions\AdmissionsAccountGateway;
++use Gibbon\Forms\Builder\ApplicantType;
+ 
+ require_once '../../gibbon.php';
+ 
+@@ -81,13 +82,14 @@
+     $formData->save($identifier);
+ 
+     // Add configuration data to the form, such as recently created IDs
++    $accountPersonID = !$public ? ApplicantType::accountPersonForForm($formBuilder, $formData, $account['gibbonPersonID']) : '';
+     $formBuilder->addConfig([
+         'mode'           => 'submit',
+         'foreignTableID' => $formData->identify($identifier),
+         'accessID'       => $accessID,
+         'accessToken'    => $account['accessToken'],
+         'accountEmail'   => $account['email'],
+-        'gibbonPersonID' => !$public ? $account['gibbonPersonID'] : '',
++        'gibbonPersonID' => $accountPersonID, // only Parent 1 when a parent is applying (see ApplicantType)
+         'gibbonFamilyID' => !$public ? $account['gibbonFamilyID'] : '',
+     ]);
+ 
+diff -ruN a/modules/Admissions/applications_manage_accept.php b/modules/Admissions/applications_manage_accept.php
+--- a/modules/Admissions/applications_manage_accept.php	2026-10-24 16:34:48.610632559 -0500
++++ b/modules/Admissions/applications_manage_accept.php	2026-10-24 16:34:48.616020893 -0500
+@@ -154,7 +154,8 @@
+             ->setClass('ml-4');
+     }
+ 
+-    if ($formBuilder->hasConfig('acceptanceEmailParentTemplate') && !$formData->has('gibbonPersonIDParent1')) {
++    // Only offer to inform parents when the form collected parent details
++    if ($formBuilder->hasConfig('acceptanceEmailParentTemplate') && $formBuilder->hasField('parent1email') && !$formData->has('gibbonPersonIDParent1')) {
+         $col->addCheckbox('informParents')
+             ->description(__('Automatically inform <u>parents</u> of their Gibbon login details by email?'))
+             ->setValue('Y')
+diff -ruN a/modules/Admissions/applications_manage_acceptProcess.php b/modules/Admissions/applications_manage_acceptProcess.php
+--- a/modules/Admissions/applications_manage_acceptProcess.php	2026-10-24 16:34:48.661235079 -0500
++++ b/modules/Admissions/applications_manage_acceptProcess.php	2026-10-24 16:34:48.663419685 -0500
+@@ -25,6 +25,7 @@
+ use Gibbon\Forms\Builder\Processor\FormProcessorFactory;
+ use Gibbon\Domain\Admissions\AdmissionsAccountGateway;
+ use Gibbon\Domain\Admissions\AdmissionsApplicationGateway;
++use Gibbon\Forms\Builder\ApplicantType;
+ 
+ require_once '../../gibbon.php';
+ 
+@@ -65,8 +66,12 @@
+     $formData = $container->get(ApplicationFormStorage::class)->setContext($formBuilder->getFormID(), $formBuilder->getPageID(), 'gibbonAdmissionsAccount', $account['gibbonAdmissionsAccountID'], $account['email']);
+     $formData->load($application['identifier']);
+     
++    // Who completes this application: a parent, or the student for themselves (see ApplicantType)
++    $isStudentApplicant = ApplicantType::isStudent($formBuilder, $formData);
++
+     // Link the application to this parent, if one exists (eg: created after the application)
+-    if (!$formData->has('gibbonPersonIDParent1') && !empty($account['gibbonPersonID'])) {
++    // Not when the student is applying: the admissions account is theirs, they are not their own parent
++    if (!$formData->has('gibbonPersonIDParent1') && !$isStudentApplicant && !empty($account['gibbonPersonID'])) {
+         $formData->set('gibbonPersonIDParent1', $account['gibbonPersonID']);
+     }
+     // Link the application to this account family, if one exists
+@@ -99,7 +104,17 @@
+                 'gibbonFamilyID' => $formData->getResult('gibbonFamilyID'),
+             ]);
+         }
+-        if ($formData->hasResult('parent1created') && $formData->hasResult('gibbonPersonIDParent1') && empty($account['gibbonPersonID'])) {
++        if ($isStudentApplicant && $formData->hasResult('gibbonPersonIDStudent') && empty($account['gibbonPersonID'])) {
++            // The student applied for themselves: link the account to the new student, so they can return to it,
++            // unless that student is already linked to another admissions account (gibbonPersonID is unique).
++            // Any parents created from the parent fields are not linked to the student's account.
++            $gibbonPersonIDStudent = $formData->getResult('gibbonPersonIDStudent');
++            if (empty($admissionsAccountGateway->getAccountByPerson($gibbonPersonIDStudent))) {
++                $admissionsAccountGateway->update($account['gibbonAdmissionsAccountID'], [
++                    'gibbonPersonID' => $gibbonPersonIDStudent,
++                ]);
++            }
++        } elseif (!$isStudentApplicant && $formData->hasResult('parent1created') && $formData->hasResult('gibbonPersonIDParent1') && empty($account['gibbonPersonID'])) {
+             $admissionsAccountGateway->update($account['gibbonAdmissionsAccountID'], [
+                 'gibbonPersonID' => $formData->getResult('gibbonPersonIDParent1'),
+             ]);
+diff -ruN a/modules/Admissions/applications_manage_add.php b/modules/Admissions/applications_manage_add.php
+--- a/modules/Admissions/applications_manage_add.php	2026-10-24 16:34:48.680336073 -0500
++++ b/modules/Admissions/applications_manage_add.php	2026-10-24 16:34:48.682735917 -0500
+@@ -28,6 +28,7 @@
+ use Gibbon\Forms\Builder\Storage\ApplicationFormStorage;
+ use Gibbon\Forms\Builder\Processor\FormProcessorFactory;
+ use Gibbon\Domain\Admissions\AdmissionsAccountGateway;
++use Gibbon\Forms\Builder\ApplicantType;
+ use Gibbon\Domain\Admissions\AdmissionsApplicationGateway;
+ 
+ if (isActionAccessible($guid, $connection2, '/modules/Admissions/applications_manage_add.php') == false) {
+@@ -76,9 +77,11 @@
+     $formData = $container->get(ApplicationFormStorage::class)->setContext($formBuilder->getFormID(), $formBuilder->getPageID(), 'gibbonAdmissionsAccount', $account['gibbonAdmissionsAccountID'], $account['email']);
+     
+     $formData->load($identifier);
++    // The account's person is only Parent 1 when a parent is applying (see ApplicantType)
++    $accountPersonID = ApplicantType::accountPersonForForm($formBuilder, $formData, $account['gibbonPersonID'] ?? '');
+     $formBuilder->addConfig([
+         'foreignTableID' => $formData->identify($identifier),
+-        'gibbonPersonID' => $account['gibbonPersonID'] ?? null,
++        'gibbonPersonID' => $accountPersonID ?: null,
+         'gibbonFamilyID' => $account['gibbonFamilyID'] ?? null,
+         'invalid' => !empty($_GET['invalid']) ? explode(',', $_GET['invalid']) : [],
+     ]);
+@@ -98,7 +101,7 @@
+     if ($incomplete && !empty($account)) {
+         $formPrefill = $container->get(FormPrefill::class)
+             ->loadApplicationData($admissionsAccountGateway, $admissionsApplicationGateway, $gibbonFormID, $accessID, $account['accessToken'])
+-            ->loadPersonalData($admissionsAccountGateway, $account['gibbonPersonID'], $accessID, $account['accessToken'])
++            ->loadPersonalData($admissionsAccountGateway, $accountPersonID, $accessID, $account['accessToken'])
+             ->prefill($formBuilder, $formData, $pageNumber, $values);
+ 
+         if ($formPrefill->isPrefilled()) {
+diff -ruN a/modules/Admissions/applications_manage_addProcess.php b/modules/Admissions/applications_manage_addProcess.php
+--- a/modules/Admissions/applications_manage_addProcess.php	2026-10-24 16:34:48.652357378 -0500
++++ b/modules/Admissions/applications_manage_addProcess.php	2026-10-24 16:34:48.654110424 -0500
+@@ -26,6 +26,7 @@
+ use Gibbon\Forms\Builder\Processor\FormProcessorFactory;
+ use Gibbon\Forms\Builder\Storage\ApplicationFormStorage;
+ use Gibbon\Domain\Admissions\AdmissionsAccountGateway;
++use Gibbon\Forms\Builder\ApplicantType;
+ 
+ require_once '../../gibbon.php';
+ 
+@@ -74,12 +75,14 @@
+     $formData->save($identifier);
+ 
+     // Add configuration data to the form, such as recently created IDs
++    // The account's person is only Parent 1 when a parent is applying (see ApplicantType)
++    $accountPersonID = ApplicantType::accountPersonForForm($formBuilder, $formData, $account['gibbonPersonID'] ?? '');
+     $formBuilder->addConfig([
+         'mode'           => 'manual',
+         'foreignTableID' => $formData->identify($identifier),
+         'accessID'       => $accessID,
+         'accessToken'    => $account['accessToken'],
+-        'gibbonPersonID' => $account['gibbonPersonID'] ?? null,
++        'gibbonPersonID' => $accountPersonID ?: null,
+         'gibbonFamilyID' => $account['gibbonFamilyID'] ?? null,
+     ]);
+ 
+diff -ruN a/modules/Admissions/applications_manage_edit.php b/modules/Admissions/applications_manage_edit.php
+--- a/modules/Admissions/applications_manage_edit.php	2026-10-24 16:34:48.623991069 -0500
++++ b/modules/Admissions/applications_manage_edit.php	2026-10-24 16:34:48.625915502 -0500
+@@ -24,6 +24,7 @@
+ use Gibbon\Tables\DataTable;
+ use Gibbon\Services\Format;
+ use Gibbon\Domain\User\UserGateway;
++use Gibbon\Forms\Builder\ApplicantType;
+ use Gibbon\Forms\Builder\Processor\FormProcessorFactory;
+ use Gibbon\Forms\Builder\Storage\ApplicationFormStorage;
+ use Gibbon\Module\Admissions\ApplicationBuilder;
+@@ -97,10 +98,11 @@
+         echo Format::alert($errorMessage);
+     }
+ 
+-    // Link existing parent 1 or family
++    // Link existing parent 1 or family. The account's person is only Parent 1 when a parent is applying (see ApplicantType)
++    $accountPersonID = ApplicantType::accountPersonForForm($formBuilder, $formData, $account['gibbonPersonID'] ?? '');
+     $formBuilder->addConfig([
+         'accountEmail'   => $account['email'] ?? '',
+-        'gibbonPersonID' => $account['gibbonPersonID'] ?? $formData->getAny('gibbonPersonIDParent1'),
++        'gibbonPersonID' => !empty($accountPersonID) ? $accountPersonID : $formData->getAny('gibbonPersonIDParent1'),
+         'gibbonFamilyID' => $account['gibbonFamilyID'] ?? $formData->getAny('gibbonFamilyID'),
+     ]);
+ 
+@@ -149,9 +151,9 @@
+     $detailsTable = $container->get(ApplicationDetailsTable::class)->createTable();
+     echo $detailsTable->render([$application]);
+ 
+-    // Detect existing accounts or sibling applications
+-    if ($application['status'] != 'Accepted' && !empty($account['gibbonPersonID']) && empty($formData->getAny('gibbonPersonIDParent1'))) {
+-        $person = $container->get(UserGateway::class)->getByID($account['gibbonPersonID'], ['gibbonPersonID', 'status', 'title', 'preferredName', 'surname']);
++    // Detect existing accounts or sibling applications (only when the account's person acts as Parent 1)
++    if ($application['status'] != 'Accepted' && !empty($accountPersonID) && empty($formData->getAny('gibbonPersonIDParent1'))) {
++        $person = $container->get(UserGateway::class)->getByID($accountPersonID, ['gibbonPersonID', 'status', 'title', 'preferredName', 'surname']);
+ 
+         if (empty($person)) {
+             echo Format::alert(__('The selected record does not exist.'), 'error');
+diff -ruN a/modules/Admissions/applications_manage_editProcess.php b/modules/Admissions/applications_manage_editProcess.php
+--- a/modules/Admissions/applications_manage_editProcess.php	2026-10-24 16:34:48.690990486 -0500
++++ b/modules/Admissions/applications_manage_editProcess.php	2026-10-24 16:34:48.692931733 -0500
+@@ -23,6 +23,7 @@
+ use Gibbon\Data\Validator;
+ use Gibbon\Module\Admissions\ApplicationBuilder;
+ use Gibbon\Domain\Admissions\AdmissionsAccountGateway;
++use Gibbon\Forms\Builder\ApplicantType;
+ use Gibbon\Domain\Admissions\AdmissionsApplicationGateway;
+ use Gibbon\Forms\Builder\Storage\ApplicationFormStorage;
+ use Gibbon\Forms\Builder\Processor\FormProcessorFactory;
+@@ -68,6 +69,9 @@
+     $formData = $container->get(ApplicationFormStorage::class)->setContext($formBuilder->getFormID(), $formBuilder->getPageID(), 'gibbonAdmissionsAccount', $account['gibbonAdmissionsAccountID'], $account['email']);
+     $formData->load($application['identifier']);
+ 
++    // The account's person is only Parent 1 when a parent is applying (see ApplicantType)
++    $accountPersonID = ApplicantType::accountPersonForForm($formBuilder, $formData, $account['gibbonPersonID'] ?? '');
++
+     $formBuilder->addConfig([
+         'mode'           => 'edit',
+         'foreignTableID' => $gibbonAdmissionsApplicationID,
+@@ -75,7 +79,7 @@
+         'accessID'       => $account['accessID'],
+         'accessToken'    => $account['accessToken'],
+         'accountEmail'   => $account['email'] ?? '',
+-        'gibbonPersonID' => $account['gibbonPersonID'],
++        'gibbonPersonID' => $accountPersonID,
+         'gibbonFamilyID' => $account['gibbonFamilyID'],
+     ]);
+ 
+diff -ruN "a/modules/Data Updater/data_finance.php" "b/modules/Data Updater/data_finance.php"
+--- "a/modules/Data Updater/data_finance.php"	2026-10-24 16:34:48.314632566 -0500
++++ "b/modules/Data Updater/data_finance.php"	2026-10-24 16:34:48.321430347 -0500
+@@ -199,7 +199,7 @@
+ 					$row = $form->addRow();
+ 						$row->addLabel('invoiceTo', __('Send Invoices To'));
+ 						$row->addRadio('invoiceTo')
+-							->fromArray(array('Family' => __('Family'), 'Company' => __('Company')))
++							->fromArray(array('Family' => __('Family'), 'Company' => __('Company'), 'Student' => __('Student')))
+ 							->inline();
+ 
+ 					$form->toggleVisibilityByClass('paymentCompany')->onRadio('invoiceTo')->when('Company');
+diff -ruN a/modules/Finance/invoicees_manage.php b/modules/Finance/invoicees_manage.php
+--- a/modules/Finance/invoicees_manage.php	2026-10-24 16:34:48.593371684 -0500
++++ b/modules/Finance/invoicees_manage.php	2026-10-24 16:34:48.595437336 -0500
+@@ -112,6 +112,8 @@
+                 switch ($invoicee['invoiceTo']) {
+                     case "Family":
+                         return __("Family");
++                    case "Student":
++                        return __("Student");
+                     case "Company":
+                         switch ($invoicee['companyAll']) {
+                             case "Y":
+diff -ruN a/modules/Finance/invoicees_manage_edit.php b/modules/Finance/invoicees_manage_edit.php
+--- a/modules/Finance/invoicees_manage_edit.php	2026-10-24 16:34:48.570391611 -0500
++++ b/modules/Finance/invoicees_manage_edit.php	2026-10-24 16:34:48.572570403 -0500
+@@ -82,7 +82,7 @@
+             $row = $form->addRow();
+                 $row->addLabel('invoiceTo', __('Send Invoices To'));
+                 $row->addRadio('invoiceTo')
+-                    ->fromArray(array('Family' => __('Family'), 'Company' => __('Company')))
++                    ->fromArray(array('Family' => __('Family'), 'Company' => __('Company'), 'Student' => __('Student')))
+                     ->inline();
+ 
+             $form->toggleVisibilityByClass('paymentCompany')->onRadio('invoiceTo')->when('Company');
+diff -ruN a/modules/Finance/invoices_manage_addProcess.php b/modules/Finance/invoices_manage_addProcess.php
+--- a/modules/Finance/invoices_manage_addProcess.php	2026-10-24 16:34:48.580966525 -0500
++++ b/modules/Finance/invoices_manage_addProcess.php	2026-10-24 16:34:48.583110079 -0500
+@@ -114,7 +114,7 @@
+                     } else {
+                         $row = $result->fetch();
+                         $invoiceTo = $row['invoiceTo'];
+-                        if ($invoiceTo != 'Family' and $invoiceTo != 'Company') {
++                        if ($invoiceTo != 'Family' and $invoiceTo != 'Company' and $invoiceTo != 'Student') {
+                             ++$studentFailCount;
+                             $thisStudentFailed = true;
+                         } else {
+@@ -148,16 +148,19 @@
+                     }
+ 
+                     if ($thisStudentFailed == false) {
+-                        //CHECK FOR INVOICE AND UPDATE/ADD FOR FAMILY (INC WHEN COMPANY IS PAYING ONLY SOME FEES)
+-                        if ($invoiceTo == 'Family' or $companyFamily == true) {
++                        //CHECK FOR INVOICE AND UPDATE/ADD FOR FAMILY (INC WHEN COMPANY IS PAYING ONLY SOME FEES), OR FOR THE STUDENT
++                        $familyInvoiceTo = ($invoiceTo == 'Student') ? 'Student' : 'Family';
++                        if ($invoiceTo == 'Family' or $invoiceTo == 'Student' or $companyFamily == true) {
+                             $thisInvoiceFailed = false;
+                             try {
+                                 if ($scheduling == 'Scheduled') {
+                                     $dataInvoice = array('gibbonSchoolYearID' => $gibbonSchoolYearID, 'gibbonFinanceInvoiceeID' => $gibbonFinanceInvoiceeID, 'gibbonFinanceBillingScheduleID' => $gibbonFinanceBillingScheduleID);
+-                                    $sqlInvoice = "SELECT * FROM gibbonFinanceInvoice WHERE gibbonSchoolYearID=:gibbonSchoolYearID AND gibbonFinanceInvoiceeID=:gibbonFinanceInvoiceeID AND invoiceTo='Family' AND billingScheduleType='Scheduled' AND gibbonFinanceBillingScheduleID=:gibbonFinanceBillingScheduleID AND status='Pending'";
++                                    $sqlInvoice = "SELECT * FROM gibbonFinanceInvoice WHERE gibbonSchoolYearID=:gibbonSchoolYearID AND gibbonFinanceInvoiceeID=:gibbonFinanceInvoiceeID AND invoiceTo=:invoiceTo AND billingScheduleType='Scheduled' AND gibbonFinanceBillingScheduleID=:gibbonFinanceBillingScheduleID AND status='Pending'";
++                                    $dataInvoice['invoiceTo'] = $familyInvoiceTo;
+                                 } else {
+                                     $dataInvoice = array('gibbonSchoolYearID' => $gibbonSchoolYearID, 'gibbonFinanceInvoiceeID' => $gibbonFinanceInvoiceeID);
+-                                    $sqlInvoice = "SELECT * FROM gibbonFinanceInvoice WHERE gibbonSchoolYearID=:gibbonSchoolYearID AND gibbonFinanceInvoiceeID=:gibbonFinanceInvoiceeID AND invoiceTo='Family' AND billingScheduleType='Ad Hoc' AND status='Pending'";
++                                    $sqlInvoice = "SELECT * FROM gibbonFinanceInvoice WHERE gibbonSchoolYearID=:gibbonSchoolYearID AND gibbonFinanceInvoiceeID=:gibbonFinanceInvoiceeID AND invoiceTo=:invoiceTo AND billingScheduleType='Ad Hoc' AND status='Pending'";
++                                    $dataInvoice['invoiceTo'] = $familyInvoiceTo;
+                                 }
+                                 $resultInvoice = $connection2->prepare($sqlInvoice);
+                                 $resultInvoice->execute($dataInvoice);
+@@ -195,10 +198,12 @@
+                                     try {
+                                         if ($scheduling == 'Scheduled') {
+                                             $dataInvoiceAdd = array('gibbonSchoolYearID' => $gibbonSchoolYearID, 'gibbonFinanceInvoiceeID' => $gibbonFinanceInvoiceeID, 'gibbonFinanceBillingScheduleID' => $gibbonFinanceBillingScheduleID, 'notes' => $notes, 'key' => $key, 'gibbonPersonIDCreator' => $session->get('gibbonPersonID'));
+-                                            $sqlInvoiceAdd = "INSERT INTO gibbonFinanceInvoice SET gibbonSchoolYearID=:gibbonSchoolYearID, gibbonFinanceInvoiceeID=:gibbonFinanceInvoiceeID, invoiceTo='Family', billingScheduleType='Scheduled', gibbonFinanceBillingScheduleID=:gibbonFinanceBillingScheduleID, notes=:notes, `key`=:key, status='Pending', separated='N', gibbonPersonIDCreator=:gibbonPersonIDCreator, timeStampCreator='".date('Y-m-d H:i:s')."'";
++                                            $sqlInvoiceAdd = "INSERT INTO gibbonFinanceInvoice SET gibbonSchoolYearID=:gibbonSchoolYearID, gibbonFinanceInvoiceeID=:gibbonFinanceInvoiceeID, invoiceTo=:invoiceTo, billingScheduleType='Scheduled', gibbonFinanceBillingScheduleID=:gibbonFinanceBillingScheduleID, notes=:notes, `key`=:key, status='Pending', separated='N', gibbonPersonIDCreator=:gibbonPersonIDCreator, timeStampCreator='".date('Y-m-d H:i:s')."'";
++                                            $dataInvoiceAdd['invoiceTo'] = $familyInvoiceTo;
+                                         } else {
+                                             $dataInvoiceAdd = array('gibbonSchoolYearID' => $gibbonSchoolYearID, 'gibbonFinanceInvoiceeID' => $gibbonFinanceInvoiceeID, 'invoiceDueDate' => $invoiceDueDate, 'notes' => $notes, 'key' => $key, 'gibbonPersonIDCreator' => $session->get('gibbonPersonID'));
+-                                            $sqlInvoiceAdd = "INSERT INTO gibbonFinanceInvoice SET gibbonSchoolYearID=:gibbonSchoolYearID, gibbonFinanceInvoiceeID=:gibbonFinanceInvoiceeID, invoiceTo='Family', billingScheduleType='Ad Hoc', status='Pending', invoiceDueDate=:invoiceDueDate, notes=:notes, `key`=:key, gibbonPersonIDCreator=:gibbonPersonIDCreator, timeStampCreator='".date('Y-m-d H:i:s')."'";
++                                            $sqlInvoiceAdd = "INSERT INTO gibbonFinanceInvoice SET gibbonSchoolYearID=:gibbonSchoolYearID, gibbonFinanceInvoiceeID=:gibbonFinanceInvoiceeID, invoiceTo=:invoiceTo, billingScheduleType='Ad Hoc', status='Pending', invoiceDueDate=:invoiceDueDate, notes=:notes, `key`=:key, gibbonPersonIDCreator=:gibbonPersonIDCreator, timeStampCreator='".date('Y-m-d H:i:s')."'";
++                                            $dataInvoiceAdd['invoiceTo'] = $familyInvoiceTo;
+                                         }
+                                         $resultInvoiceAdd = $connection2->prepare($sqlInvoiceAdd);
+                                         $resultInvoiceAdd->execute($dataInvoiceAdd);
+@@ -214,7 +219,7 @@
+                                         $count = 0;
+                                         foreach ($fees as $fee) {
+                                             ++$count;
+-                                            if ($invoiceTo == 'Family' or ($invoiceTo == 'Company' and $companyAll == 'N' and strpos($gibbonFinanceFeeCategoryIDList2, $fee['gibbonFinanceFeeCategoryID']) === false)) {
++                                            if ($invoiceTo == 'Family' or $invoiceTo == 'Student' or ($invoiceTo == 'Company' and $companyAll == 'N' and strpos($gibbonFinanceFeeCategoryIDList2, $fee['gibbonFinanceFeeCategoryID']) === false)) {
+                                                 try {
+                                                     if ($fee['feeType'] == 'Standard') {
+                                                         $dataInvoiceFee = array('gibbonFinanceInvoiceID' => $AI, 'feeType' => $fee['feeType'], 'gibbonFinanceFeeID' => $fee['gibbonFinanceFeeID'], 'count' => $count);
+@@ -239,7 +244,7 @@
+                                 $count = 0;
+                                 foreach ($fees as $fee) {
+                                     ++$count;
+-                                    if ($invoiceTo == 'Family' or ($invoiceTo == 'Company' and $companyAll == 'N' and strpos($gibbonFinanceFeeCategoryIDList2, $fee['gibbonFinanceFeeCategoryID']) === false)) {
++                                    if ($invoiceTo == 'Family' or $invoiceTo == 'Student' or ($invoiceTo == 'Company' and $companyAll == 'N' and strpos($gibbonFinanceFeeCategoryIDList2, $fee['gibbonFinanceFeeCategoryID']) === false)) {
+                                         try {
+                                             if ($fee['feeType'] == 'Standard') {
+                                                 $dataInvoiceFee = array('gibbonFinanceInvoiceID' => $rowInvoice['gibbonFinanceInvoiceID'], 'feeType' => $fee['feeType'], 'gibbonFinanceFeeID' => $fee['gibbonFinanceFeeID'], 'count' => $count);
+diff -ruN a/modules/Finance/invoices_manage_processBulk.php b/modules/Finance/invoices_manage_processBulk.php
+--- a/modules/Finance/invoices_manage_processBulk.php	2026-10-24 16:34:48.603282376 -0500
++++ b/modules/Finance/invoices_manage_processBulk.php	2026-10-24 16:34:48.605354940 -0500
+@@ -275,6 +275,12 @@
+                                         $emailFail = true;
+                                     }
+                                 }
++                            } elseif ($row['invoiceTo'] == 'Student') {
++                                $emails = getStudentInvoiceeEmails($connection2, $row['gibbonFinanceInvoiceeID']);
++                                $emailsCount = count($emails);
++                                if ($emailsCount < 1) {
++                                    $emailFail = true;
++                                }
+                             } else {
+                                 try {
+                                     $dataParents = array('gibbonFinanceInvoiceeID' => $row['gibbonFinanceInvoiceeID']);
+@@ -402,6 +408,12 @@
+                                     $emailFail = true;
+                                 }
+                             }
++                        } elseif ($row['invoiceTo'] == 'Student') {
++                            $emails = getStudentInvoiceeEmails($connection2, $row['gibbonFinanceInvoiceeID']);
++                            $emailsCount = count($emails);
++                            if ($emailsCount < 1) {
++                                $emailFail = true;
++                            }
+                         } else {
+                             try {
+                                 $dataParents = array('gibbonFinanceInvoiceeID' => $row['gibbonFinanceInvoiceeID']);
+diff -ruN a/modules/Finance/invoices_payOnlineProcess.php b/modules/Finance/invoices_payOnlineProcess.php
+--- a/modules/Finance/invoices_payOnlineProcess.php	2026-10-24 16:34:48.559138896 -0500
++++ b/modules/Finance/invoices_payOnlineProcess.php	2026-10-24 16:34:48.561091357 -0500
+@@ -153,7 +153,7 @@
+     }
+ 
+     //Check return values to see if we can proceed
+-    if ($gibbonFinanceInvoiceID == '' or $key == '' or $gibbonFinanceInvoiceeID == '' or $invoiceTo = '' or $gibbonSchoolYearID == '') {
++    if ($gibbonFinanceInvoiceID == '' or $key == '' or $gibbonFinanceInvoiceeID == '' or $invoiceTo == '' or $gibbonSchoolYearID == '') {
+         $URL .= '&return=warning3';
+         header("Location: {$URL}");
+         exit();
+@@ -225,6 +225,12 @@
+                         $emailFail = true;
+                     }
+                 }
++            } elseif ($invoiceTo == 'Student') {
++                $emails = getStudentInvoiceeEmails($connection2, $gibbonFinanceInvoiceeID);
++                $emailsCount = count($emails);
++                if ($emailsCount < 1) {
++                    $emailFail = true;
++                }
+             } else {
+                 try {
+                     $dataParents = array('gibbonFinanceInvoiceeID' => $gibbonFinanceInvoiceeID);
+@@ -251,13 +257,14 @@
+                 //Get receipt number
+ 
+                 $dataPayments = array('foreignTable' => 'gibbonFinanceInvoice', 'foreignTableID' => $gibbonFinanceInvoiceID);
+-                $sqlPayments = 'SELECT gibbonPayment.*, surname, preferredName FROM gibbonPayment JOIN gibbonPerson ON (gibbonPayment.gibbonPersonID=gibbonPerson.gibbonPersonID) WHERE foreignTable=:foreignTable AND foreignTableID=:foreignTableID ORDER BY timestamp, gibbonPaymentID';
++                // LEFT JOIN: count payments made by someone not logged in (gibbonPersonID NULL) too
++                $sqlPayments = 'SELECT gibbonPayment.*, surname, preferredName FROM gibbonPayment LEFT JOIN gibbonPerson ON (gibbonPayment.gibbonPersonID=gibbonPerson.gibbonPersonID) WHERE foreignTable=:foreignTable AND foreignTableID=:foreignTableID ORDER BY timestamp, gibbonPaymentID';
+                 $resultPayments = $connection2->prepare($sqlPayments);
+                 $resultPayments->execute($dataPayments);
+                 $receiptCount = $resultPayments->rowCount();
+ 
+                 //Prep message
+-                $body = receiptContents($guid, $connection2, $gibbonFinanceInvoiceID, $gibbonSchoolYearID, $session->get('currency'), true, $receiptCount)."<p style='font-style: italic;'>Email sent via ".$session->get('systemName').' at '.$session->get('organisationName').'.</p>';
++                $body = receiptContents($guid, $connection2, $gibbonFinanceInvoiceID, $gibbonSchoolYearID, $session->get('currency'), true, $receiptCount-1)."<p style='font-style: italic;'>Email sent via ".$session->get('systemName').' at '.$session->get('organisationName').'.</p>';
+ 
+                 $mail = $container->get(Mailer::class);
+                 $mail->SetFrom($settingGateway->getSettingByScope('Finance', 'email'), sprintf(__('%1$s Finance'), $session->get('organisationName')));
+diff -ruN a/modules/Finance/moduleFunctions.php b/modules/Finance/moduleFunctions.php
+--- a/modules/Finance/moduleFunctions.php	2026-10-24 16:34:48.398632564 -0500
++++ b/modules/Finance/moduleFunctions.php	2026-10-24 16:34:48.403021345 -0500
+@@ -24,6 +24,74 @@
+ use Gibbon\Domain\System\SettingGateway;
+ 
+ //Returns amount paid on an particular table/ID combo
++/**
++ * Contact details for an invoicee billed to the student themselves (invoiceTo = 'Student').
++ * Read live from the student's record: name, email, and their own address, or their family's home address.
++ *
++ * @return array|false
++ */
++function getStudentInvoiceeContact($connection2, $gibbonFinanceInvoiceeID)
++{
++    $data = array('gibbonFinanceInvoiceeID' => $gibbonFinanceInvoiceeID);
++    $sql = "SELECT student.title, student.preferredName, student.surname, student.email, student.address1, student.address1District, student.address1Country, gibbonFamily.homeAddress, gibbonFamily.homeAddressDistrict, gibbonFamily.homeAddressCountry
++        FROM gibbonFinanceInvoicee
++        JOIN gibbonPerson AS student ON (gibbonFinanceInvoicee.gibbonPersonID=student.gibbonPersonID)
++        LEFT JOIN gibbonFamilyChild ON (gibbonFamilyChild.gibbonPersonID=student.gibbonPersonID)
++        LEFT JOIN gibbonFamily ON (gibbonFamily.gibbonFamilyID=gibbonFamilyChild.gibbonFamilyID)
++        WHERE gibbonFinanceInvoiceeID=:gibbonFinanceInvoiceeID
++        ORDER BY gibbonFamily.gibbonFamilyID
++        LIMIT 1";
++    $result = $connection2->prepare($sql);
++    $result->execute($data);
++
++    return $result->rowCount() == 1 ? $result->fetch() : false;
++}
++
++/**
++ * Email addresses for an invoicee billed to the student: the student's own email, if they have one.
++ */
++function getStudentInvoiceeEmails($connection2, $gibbonFinanceInvoiceeID)
++{
++    $student = getStudentInvoiceeContact($connection2, $gibbonFinanceInvoiceeID);
++
++    return !empty($student['email']) ? array($student['email']) : array();
++}
++
++/**
++ * The "Invoice To" / "Receipt To" line for a student invoicee.
++ */
++function formatStudentInvoiceTo($connection2, $gibbonFinanceInvoiceeID)
++{
++    $student = getStudentInvoiceeContact($connection2, $gibbonFinanceInvoiceeID);
++    if (empty($student)) {
++        return '';
++    }
++
++    $invoiceTo = '<b>'.Format::name('', htmlPrep($student['preferredName']), htmlPrep($student['surname']), 'Student', false).'</b>, ';
++    if ($student['email'] != '') {
++        $invoiceTo .= $student['email'].', ';
++    }
++    if ($student['address1'] != '') {
++        $invoiceTo .= $student['address1'].', ';
++        if ($student['address1District'] != '') {
++            $invoiceTo .= $student['address1District'].', ';
++        }
++        if ($student['address1Country'] != '') {
++            $invoiceTo .= $student['address1Country'].', ';
++        }
++    } elseif ($student['homeAddress'] != '') {
++        $invoiceTo .= $student['homeAddress'].', ';
++        if ($student['homeAddressDistrict'] != '') {
++            $invoiceTo .= $student['homeAddressDistrict'].', ';
++        }
++        if ($student['homeAddressCountry'] != '') {
++            $invoiceTo .= $student['homeAddressCountry'].', ';
++        }
++    }
++
++    return substr($invoiceTo, 0, -2);
++}
++
+ function getAmountPaid($connection2, $guid, $foreignTable, $foreignTableID)
+ {
+     $return = true;
+@@ -717,6 +785,8 @@
+                 $invoiceTo .= $row['companyAddress'].', ';
+             }
+             $return .= substr($invoiceTo, 0, -2);
++        } elseif ($row['invoiceTo'] == 'Student') {
++            $return .= formatStudentInvoiceTo($connection2, $row['gibbonFinanceInvoiceeID']);
+         } else {
+             try {
+                 $dataParents = array('gibbonFinanceInvoiceeID' => $row['gibbonFinanceInvoiceeID']);
+@@ -1050,6 +1120,8 @@
+                 $invoiceTo .= $row['companyAddress'].', ';
+             }
+             $return .= substr($invoiceTo, 0, -2);
++        } elseif ($row['invoiceTo'] == 'Student') {
++            $return .= formatStudentInvoiceTo($connection2, $row['gibbonFinanceInvoiceeID']);
+         } else {
+             try {
+                 $dataParents = array('gibbonFinanceInvoiceeID' => $row['gibbonFinanceInvoiceeID']);
+diff -ruN a/modules/Finance/src/Forms/FinanceFormFactory.php b/modules/Finance/src/Forms/FinanceFormFactory.php
+--- a/modules/Finance/src/Forms/FinanceFormFactory.php	2026-10-24 16:34:48.546632561 -0500
++++ b/modules/Finance/src/Forms/FinanceFormFactory.php	2026-10-24 16:34:48.550335892 -0500
+@@ -267,6 +267,32 @@
+             }
+         }
+ 
++        // Student Emails: invoices billed to the student themselves
++        if ($values['invoiceTo'] == 'Student') {
++            $data = array('gibbonFinanceInvoiceeID' => $values['gibbonFinanceInvoiceeID']);
++            $sql = "SELECT student.preferredName, student.surname, student.email
++                    FROM gibbonFinanceInvoicee
++                    JOIN gibbonPerson AS student ON (gibbonFinanceInvoicee.gibbonPersonID=student.gibbonPersonID)
++                    WHERE gibbonFinanceInvoiceeID=:gibbonFinanceInvoiceeID";
++            $student = $this->pdo->selectOne($sql, $data);
++
++            if (!empty($student)) {
++                $name = Format::name('', htmlPrep($student['preferredName']), htmlPrep($student['surname']), 'Student', false);
++                $row = $table->addRow();
++                    $row->addLabel($checkboxName, $name)->description(__('Student'));
++                    $row->onlyIf(!empty($student['email']))
++                        ->addCheckbox($checkboxName)
++                        ->description($student['email'])
++                        ->setValue($student['email'])
++                        ->checked($student['email'])
++                        ->append('<input type="hidden" name="'.$hiddenValueName.'" value="'.$name.'">');
++                    $row->onlyIf(empty($student['email']))
++                        ->addContent(__('No email address.'))
++                        ->addClass('right')
++                        ->wrap('<span class="text-xs italic">', '</span>');
++            }
++        }
++
+         // Family Emails
+         if ($values['invoiceTo'] == 'Family' || ($values['invoiceTo'] == 'Company' && $values['companyCCFamily'] == 'Y')) {
+             $data = array('gibbonFinanceInvoiceeID' => $values['gibbonFinanceInvoiceeID']);
+diff -ruN a/src/Forms/Builder/ApplicantType.php b/src/Forms/Builder/ApplicantType.php
+--- a/src/Forms/Builder/ApplicantType.php	1969-12-31 18:00:00.000000000 -0600
++++ b/src/Forms/Builder/ApplicantType.php	2026-10-24 16:34:48.083155625 -0500
+@@ -0,0 +1,69 @@
++<?php
++/*
++Gibbon: the flexible, open school platform
++Founded by Ross Parker at ICHK Secondary. Built by Ross Parker, Sandra Kuipers and the Gibbon community (https://gibbonedu.org/about/)
++Copyright © 2010, Gibbon Foundation
++Gibbon™, Gibbon Education Ltd. (Hong Kong)
++
++This program is free software: you can redistribute it and/or modify
++it under the terms of the GNU General Public License as published by
++the Free Software Foundation, either version 3 of the License, or
++(at your option) any later version.
++
++This program is distributed in the hope that it will be useful,
++but WITHOUT ANY WARRANTY; without even the implied warranty of
++MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
++GNU General Public License for more details.
++
++You should have received a copy of the GNU General Public License
++along with this program. If not, see <http://www.gnu.org/licenses/>.
++*/
++
++namespace Gibbon\Forms\Builder;
++
++use Gibbon\Forms\Builder\Storage\FormDataInterface;
++
++/**
++ * Who completes an application form, set per form in Form Builder > Active Features >
++ * Applicant ("applicantType" in the form config):
++ *
++ *  - Parent:  a parent or guardian applies for a student (the default, and Gibbon's original behaviour)
++ *  - Student: the student applies for themselves; parent sections may still be on the form
++ *
++ * A school that accepts both creates one form of each.
++ *
++ * Decides who receives application emails, who the admissions account belongs to, and
++ * whether the account's person is used as Parent 1. Kept in one place so the rule cannot
++ * drift between files.
++ */
++class ApplicantType
++{
++    const PARENT  = 'Parent';
++    const STUDENT = 'Student';
++
++    /**
++     * The form's setting: Parent or Student. Forms without a setting are Parent.
++     */
++    public static function getSetting(FormBuilderInterface $builder) : string
++    {
++        return $builder->getConfig('applicantType', '') == self::STUDENT ? self::STUDENT : self::PARENT;
++    }
++
++    /**
++     * Is the student completing this application?
++     */
++    public static function isStudent(FormBuilderInterface $builder, ?FormDataInterface $data = null) : bool
++    {
++        return self::getSetting($builder) == self::STUDENT;
++    }
++
++    /**
++     * The admissions account's person to give the form builder as an existing Parent 1,
++     * or '' when the student is applying: the account is then the student's own, and a
++     * student is never their own parent.
++     */
++    public static function accountPersonForForm(FormBuilderInterface $builder, ?FormDataInterface $data, $gibbonPersonID) : string
++    {
++        return !empty($gibbonPersonID) && !self::isStudent($builder, $data) ? (string) $gibbonPersonID : '';
++    }
++}
+diff -ruN a/src/Forms/Builder/Fields/FamilyFields.php b/src/Forms/Builder/Fields/FamilyFields.php
+--- a/src/Forms/Builder/Fields/FamilyFields.php	2026-10-24 16:34:48.073604743 -0500
++++ b/src/Forms/Builder/Fields/FamilyFields.php	2026-10-24 16:34:48.075876666 -0500
+@@ -119,12 +119,20 @@
+         $row = $form->addRow();
+ 
+         // FAMILY: Already logged in, record gibbonFamilyID choice
++        $families = [];
+         if ($formBuilder->hasConfig('gibbonPersonID')) {
+             $gibbonPersonIDParent = str_pad($formBuilder->getConfig('gibbonPersonID'), 10, '0', STR_PAD_LEFT);
+             $families = $this->familyGateway->selectFamiliesByAdult($gibbonPersonIDParent)->fetchAll();
+         }
+ 
+-        if (!empty($families) || $formBuilder->hasConfig('gibbonFamilyID')) {
++        // No parent account, but the admissions account already has a family (eg: a student applying again):
++        // offer that family, rather than an empty choice (previously a fatal error, $families was undefined)
++        if (empty($families) && $formBuilder->hasConfig('gibbonFamilyID')) {
++            $family = $this->familyGateway->getByID($formBuilder->getConfig('gibbonFamilyID'), ['gibbonFamilyID', 'name']);
++            $families = !empty($family) ? [$family] : [];
++        }
++
++        if (!empty($families)) {
+         
+             if ($field['fieldName'] == 'homeAddress') {
+                 $row->addHeading('Family Details', __('Family Details'))->append(__('Choose the family you wish to associate this application with.'));
+@@ -230,7 +238,10 @@
+ 
+     public function shouldValidate(FormBuilderInterface $formBuilder, array &$data, string $fieldName)
+     {
+-        if ($formBuilder->hasConfig('gibbonPersonID')) return false;
++        // Same test as addFieldToForm(): when an existing family is offered, the address fields are hidden,
++        // so they cannot be required (previously only checked gibbonPersonID, so an account with a family
++        // but no parent, eg: a student applying again, could never get past this page)
++        if ($formBuilder->hasConfig('gibbonPersonID') || $formBuilder->hasConfig('gibbonFamilyID')) return false;
+ 
+         return true;
+     }
+diff -ruN a/src/Forms/Builder/Fields/FinanceFields.php b/src/Forms/Builder/Fields/FinanceFields.php
+--- a/src/Forms/Builder/Fields/FinanceFields.php	2026-10-24 16:34:48.062632572 -0500
++++ b/src/Forms/Builder/Fields/FinanceFields.php	2026-10-24 16:34:48.065856477 -0500
+@@ -26,6 +26,7 @@
+ use Gibbon\Forms\Builder\AbstractFieldGroup;
+ use Gibbon\Domain\Finance\FinanceFeeCategoryGateway;
+ use Gibbon\Forms\Builder\FormBuilderInterface;
++use Gibbon\Forms\Builder\ApplicantType;
+ 
+ class FinanceFields extends AbstractFieldGroup
+ {
+@@ -115,11 +116,16 @@
+ 
+             case 'payment':
+                 $form->toggleVisibilityByClass('paymentCompany')->onRadio('payment')->when('Company');
+-                
++
++                // When the student is the applicant, they can also be billed themselves
++                $options = ApplicantType::isStudent($formBuilder)
++                    ? ['Student' => __('Myself'), 'Family' => __('Family'), 'Company' => __('Company')]
++                    : ['Family' => __('Family'), 'Company' => __('Company')];
++
+                 $row->addLabel('payment', __($field['label']))->description(__($field['description']));
+                 $row->addRadio('payment')
+-                    ->fromArray(array('Family' => __('Family'), 'Company' => __('Company')))
+-                    ->checked($default ?? 'Family')
++                    ->fromArray($options)
++                    ->checked($default ?? key($options))
+                     ->inline()
+                     ->required($required);
+                 break;
+diff -ruN a/src/Forms/Builder/FormPrefill.php b/src/Forms/Builder/FormPrefill.php
+--- a/src/Forms/Builder/FormPrefill.php	2026-10-24 16:34:48.091027830 -0500
++++ b/src/Forms/Builder/FormPrefill.php	2026-10-24 16:34:48.092859964 -0500
+@@ -27,6 +27,7 @@
+ use Gibbon\Contracts\Services\Session;
+ use Gibbon\Domain\Admissions\AdmissionsApplicationGateway;
+ use Gibbon\Domain\Admissions\AdmissionsAccountGateway;
++use Gibbon\Forms\Builder\ApplicantType;
+ 
+ class FormPrefill
+ {
+@@ -36,6 +37,7 @@
+ 
+     protected $prefillable = [];
+     protected $prefilled = false;
++    protected $accountEmail = '';
+ 
+     public function __construct(Session $session, UserGateway $userGateway, FamilyGateway $familyGateway)
+     {
+@@ -50,6 +52,20 @@
+     }
+ 
+     /**
++     * The email address of the admissions account filling in this form. Used to suggest
++     * the student's email when the student is the applicant (see ApplicantType).
++     *
++     * @param string|null $email
++     * @return self
++     */
++    public function setAccountEmail(?string $email)
++    {
++        $this->accountEmail = $email ?? '';
++
++        return $this;
++    }
++
++    /**
+      * Prefill values from the most recent application form attached to this account
+      *
+      * @param AdmissionsApplicationGateway $admissionsApplicationGateway
+@@ -134,6 +150,16 @@
+             $this->prefilled = true;
+         }
+ 
++        // When the student is applying, the account email is theirs, so offer it as the student's email.
++        // It stays editable, e.g. for a separate school address.
++        if (ApplicantType::isStudent($formBuilder, $formData) && !empty($this->accountEmail) && $formBuilder->hasField('email') && !$formData->exists('email') && empty($values['email'])) {
++            $field = $formBuilder->getField('email');
++            if ($field['pageNumber'] == $pageNumber || $pageNumber <= 0) {
++                $values['email'] = $this->accountEmail;
++                $this->prefilled = true;
++            }
++        }
++
+         return $this;
+     }
+ }
+diff -ruN a/src/Forms/Builder/Process/ApplicationSubmit.php b/src/Forms/Builder/Process/ApplicationSubmit.php
+--- a/src/Forms/Builder/Process/ApplicationSubmit.php	2026-10-24 16:34:48.100379048 -0500
++++ b/src/Forms/Builder/Process/ApplicationSubmit.php	2026-10-24 16:34:48.102178237 -0500
+@@ -34,7 +34,11 @@
+ 
+ class ApplicationSubmit extends AbstractFormProcess implements ViewableProcess
+ {
+-    protected $requiredFields = [];
++    // Every application form has the student's name. Listing it makes this process appear under
++    // Active Features in Form Builder, where its view holds the "Who completes this application?"
++    // setting. verify() below never fails, so submissions behave exactly as before.
++    protected $requiredFields = ['preferredName', 'surname'];
++    protected $requiredFieldLogic = 'ANY';
+     protected $initialStatus;
+ 
+     protected $session;
+@@ -73,6 +77,11 @@
+         $this->sendNotifications($builder, $formData);
+     }
+ 
++    public function verify(FormBuilderInterface $builder, FormDataInterface $formData = null)
++    {
++        // Submitting an application never depends on particular fields being present
++    }
++
+     public function rollback(FormBuilderInterface $builder, FormDataInterface $formData)
+     {
+         $formData->setStatus($this->initialStatus);
+diff -ruN a/src/Forms/Builder/Process/AssignHouse.php b/src/Forms/Builder/Process/AssignHouse.php
+--- a/src/Forms/Builder/Process/AssignHouse.php	2026-10-24 16:34:48.110493545 -0500
++++ b/src/Forms/Builder/Process/AssignHouse.php	2026-10-24 16:34:48.112345987 -0500
+@@ -66,7 +66,7 @@
+         $formData->set('gibbonHouseID', $assignedHouse['gibbonHouseID']);
+ 
+         // Update the user data for this student
+-        $this->userGateway->update($formData->has('gibbonPersonIDStudent'), [
++        $this->userGateway->update($formData->get('gibbonPersonIDStudent'), [
+             'gibbonHouseID' => $formData->get('gibbonHouseID'),
+         ]);
+ 
+@@ -77,7 +77,7 @@
+     {
+         if (!$formData->has('gibbonPersonIDStudent')) return;
+ 
+-        $this->userGateway->update($formData->has('gibbonPersonIDStudent'), [
++        $this->userGateway->update($formData->get('gibbonPersonIDStudent'), [
+             'gibbonHouseID' => null,
+         ]);
+ 
+diff -ruN a/src/Forms/Builder/Process/CreateInvoicee.php b/src/Forms/Builder/Process/CreateInvoicee.php
+--- a/src/Forms/Builder/Process/CreateInvoicee.php	2026-10-24 16:34:48.120678105 -0500
++++ b/src/Forms/Builder/Process/CreateInvoicee.php	2026-10-24 16:34:48.122602936 -0500
+@@ -55,11 +55,12 @@
+         }
+ 
+         $categoryList = $formData->get('companyAll') == 'N' ? $formData->get('gibbonFinanceFeeCategoryIDList') : null;
++        $invoiceTo = $formData->get('payment', 'Family');
+ 
+         // Create a new finance invoicee
+-        $gibbonFinanceInvoiceeID = $this->invoiceeGateway->insert([
++        $invoicee = [
+             'gibbonPersonID'  => $formData->getResult('gibbonPersonIDStudent'),
+-            'invoiceTo'       => $formData->get('payment', 'Family'),
++            'invoiceTo'       => $invoiceTo,
+             'companyName'     => $formData->get('companyName'),
+             'companyContact'  => $formData->get('companyContact'),
+             'companyAddress'  => $formData->get('companyAddress'),
+@@ -68,7 +69,16 @@
+             'companyPhone'    => $formData->get('companyPhone'),
+             'companyAll'      => $formData->get('companyAll'),
+             'gibbonFinanceFeeCategoryIDList' => is_array($categoryList)? implode(',', $categoryList) : $categoryList,
+-        ]);
++        ];
++
++        // Billed to the student: their details are read from their own record, so no company details are kept
++        if ($invoiceTo == 'Student') {
++            foreach (['companyName', 'companyContact', 'companyAddress', 'companyEmail', 'companyCCFamily', 'companyPhone', 'companyAll', 'gibbonFinanceFeeCategoryIDList'] as $field) {
++                $invoicee[$field] = null;
++            }
++        }
++
++        $gibbonFinanceInvoiceeID = $this->invoiceeGateway->insert($invoicee);
+ 
+         $formData->setResult('gibbonFinanceInvoiceeID', $gibbonFinanceInvoiceeID);
+         $this->setResult($gibbonFinanceInvoiceeID);
+diff -ruN a/src/Forms/Builder/Process/PayProcessingFee.php b/src/Forms/Builder/Process/PayProcessingFee.php
+--- a/src/Forms/Builder/Process/PayProcessingFee.php	2026-10-24 16:34:48.143098502 -0500
++++ b/src/Forms/Builder/Process/PayProcessingFee.php	2026-10-24 16:34:48.145509391 -0500
+@@ -28,6 +28,7 @@
+ use Gibbon\Contracts\Services\Session;
+ use Gibbon\Contracts\Services\Payment;
+ use Gibbon\Forms\Builder\AbstractFormProcess;
++use Gibbon\Forms\Builder\ApplicantType;
+ use Gibbon\Forms\Builder\FormBuilderInterface;
+ use Gibbon\Forms\Builder\Storage\FormDataInterface;
+ use Gibbon\Forms\Builder\View\PayProcessingFeeView;
+@@ -37,6 +38,11 @@
+ {
+     protected $requiredFields = ['Payment Gateway', 'parent1email'];
+ 
++    // The contact email field this form uses: parent1email, or the student's email on
++    // forms without parent fields. Set by verify(), which runs before Form Builder lists
++    // required fields, so that list only shows a field the form is genuinely missing.
++    private $contactFields = ['parent1email', 'email'];
++
+     private $session;
+     private $payment;
+     private $mail;
+@@ -66,6 +72,9 @@
+ 
+         if (!is_numeric($processingFee) || $processingFee <= 0) return;
+ 
++        $contactEmail = $this->getContactEmail($builder, $formData);
++        if (empty($contactEmail)) return;
++
+         $link = Url::fromModuleRoute('Admissions', 'applicationForm_payFee')
+             ->withAbsoluteUrl()
+             ->withQueryParams([
+@@ -77,8 +86,8 @@
+ 
+         // Setup Template 
+         $template = $this->template->setTemplateByID($builder->getConfig('formProcessingEmailTemplate'));
+-        $templateData = [
+-            'email'                => $formData->get('parent1email'),
++        $templateData = array_merge([
++            'email'                => $contactEmail,
+             'date'                 => Format::date(date('Y-m-d')),
+             'link'                 => (string)$link,
+             'applicationID'        => intval($builder->getConfig('foreignTableID')),
+@@ -87,15 +96,12 @@
+             'studentPreferredName' => $formData->get('preferredName'),
+             'studentSurname'       => $formData->get('surname'),
+             'studentOfficialName'  => $formData->get('officialName'),
+-            'parentTitle'          => $formData->get('parent1title'),
+-            'parentPreferredName'  => $formData->get('parent1preferredName'),
+-            'parentSurname'        => $formData->get('parent1surname'),
+             'organisationAdmissionsName'  => $this->session->get('organisationAdmissionsName'),
+             'organisationAdmissionsEmail' => $this->session->get('organisationAdmissionsEmail'),
+-        ];
++        ], $this->getRecipientNames($builder, $formData));
+ 
+         // Setup the email
+-        $this->mail->AddAddress($formData->get('parent1email'));
++        $this->mail->AddAddress($contactEmail);
+         $this->mail->setDefaultSender($template->renderSubject($templateData));
+         $this->mail->SetFrom($this->session->get('organisationAdmissionsEmail'), $this->session->get('organisationAdmissionsName'));
+         
+@@ -124,17 +130,67 @@
+         // Cannot unsend what has been sent...
+     }
+ 
++    public function getRequiredFields() : array
++    {
++        return array_merge(['Payment Gateway'], $this->contactFields);
++    }
++
+     public function verify(FormBuilderInterface $builder, FormDataInterface $formData = null)
+     {
++        // A contact email is required: Parent 1, or the student on forms without parent fields
++        if ($builder->hasField('parent1email')) {
++            $this->contactFields = ['parent1email'];
++        } elseif ($builder->hasField('email')) {
++            $this->contactFields = ['email'];
++        } else {
++            $this->contactFields = ['parent1email', 'email'];
++        }
++
+         if (!$this->payment->isEnabled()) {
+             throw new MissingFieldException('Payment Gateway');
+         }
+ 
+-        if (!$builder->hasField('parent1email')) {
+-            throw new MissingFieldException('parent1email');
++        if (!$builder->hasField('parent1email') && !$builder->hasField('email')) {
++            throw new MissingFieldException('parent1email,email');
+         }
+     }
+ 
++    /**
++     * Who receives the processing fee request: the student when the student is applying,
++     * otherwise Parent 1; then whichever of those exists; then the admissions account.
++     */
++    protected function getContactEmail(FormBuilderInterface $builder, FormDataInterface $formData) : string
++    {
++        $order = ApplicantType::isStudent($builder, $formData) ? ['email', 'parent1email'] : ['parent1email', 'email'];
++        foreach ($order as $fieldName) {
++            if ($formData->has($fieldName)) return $formData->get($fieldName);
++        }
++
++        return $builder->getConfig('accountEmail', '') ?? '';
++    }
++
++    /**
++     * Names for the email greeting: the student when the student is applying, otherwise
++     * Parent 1 (falling back to the student if no parent name was given).
++     * The parent* keys are kept so existing templates work unchanged.
++     */
++    protected function getRecipientNames(FormBuilderInterface $builder, FormDataInterface $formData) : array
++    {
++        if (!ApplicantType::isStudent($builder, $formData) && ($formData->has('parent1surname') || $formData->has('parent1preferredName'))) {
++            return [
++                'parentTitle'         => $formData->get('parent1title'),
++                'parentPreferredName' => $formData->get('parent1preferredName'),
++                'parentSurname'       => $formData->get('parent1surname'),
++            ];
++        }
++
++        return [
++            'parentTitle'         => $formData->get('title', ''),
++            'parentPreferredName' => $formData->get('preferredName'),
++            'parentSurname'       => $formData->get('surname'),
++        ];
++    }
++
+     private function checkEnabled(FormBuilderInterface $builder)
+     {
+         if ($builder->getConfig('mode') == 'process' && $builder->getConfig($this->getProcessName().'Enabled') != 'Y') {
+diff -ruN a/src/Forms/Builder/Process/SendAcceptanceEmail.php b/src/Forms/Builder/Process/SendAcceptanceEmail.php
+--- a/src/Forms/Builder/Process/SendAcceptanceEmail.php	2026-10-24 16:34:48.154754917 -0500
++++ b/src/Forms/Builder/Process/SendAcceptanceEmail.php	2026-10-24 16:34:48.156988760 -0500
+@@ -75,13 +75,16 @@
+             $this->sendWelcomeEmail($builder, $formData, 'acceptanceEmailStudent');
+         }
+ 
++        // The parent template is optional (forms without parent fields leave it blank)
++        $hasParentTemplate = $builder->hasConfig('acceptanceEmailParentTemplate');
++
+         // Inform Parent 1?
+-        if ($formData->getResult('informParents') == 'Y' && ($formData->has('parent1email') || $formData->has('parent1emailAlternate'))) {
++        if ($hasParentTemplate && $formData->getResult('informParents') == 'Y' && ($formData->has('parent1email') || $formData->has('parent1emailAlternate'))) {
+             $this->sendWelcomeEmail($builder, $formData, 'acceptanceEmailParent', 'parent1');
+         }
+ 
+         // Inform Parent 2?
+-        if ($formData->getResult('informParents') == 'Y' && ($formData->has('parent2email') || $formData->has('parent2emailAlternate'))) {
++        if ($hasParentTemplate && $formData->getResult('informParents') == 'Y' && ($formData->has('parent2email') || $formData->has('parent2emailAlternate'))) {
+             $this->sendWelcomeEmail($builder, $formData, 'acceptanceEmailParent', 'parent2');
+         }
+     } 
+@@ -112,7 +115,8 @@
+             'organisationAdmissionsEmail' => $this->session->get('organisationAdmissionsEmail'),
+         ];
+ 
+-        // Setup the email
++        // Setup the email, starting from an empty recipient list
++        $this->mail->clearAllRecipients();
+         $this->mail->SetFrom($this->session->get('organisationAdmissionsEmail'), $this->session->get('organisationAdmissionsName'));
+         $this->mail->AddReplyTo($this->session->get('organisationAdmissionsEmail'));
+         $this->mail->setDefaultSender($template->renderSubject($templateData));
+diff -ruN a/src/Forms/Builder/Process/SendSubmissionEmail.php b/src/Forms/Builder/Process/SendSubmissionEmail.php
+--- a/src/Forms/Builder/Process/SendSubmissionEmail.php	2026-10-24 16:34:48.130203959 -0500
++++ b/src/Forms/Builder/Process/SendSubmissionEmail.php	2026-10-24 16:34:48.132011309 -0500
+@@ -24,6 +24,7 @@
+ use Gibbon\Contracts\Comms\Mailer;
+ use Gibbon\Contracts\Services\Session;
+ use Gibbon\Forms\Builder\AbstractFormProcess;
++use Gibbon\Forms\Builder\ApplicantType;
+ use Gibbon\Forms\Builder\FormBuilderInterface;
+ use Gibbon\Forms\Builder\Storage\FormDataInterface;
+ use Gibbon\Forms\Builder\View\SendSubmissionEmailView;
+@@ -89,7 +90,7 @@
+ 
+         // Setup Template 
+         $template = $this->template->setTemplateByID($builder->getConfig('submissionEmailTemplate'));
+-        $templateData = [
++        $templateData = array_merge([
+             'email'                => $builder->getConfig('accountEmail'),
+             'date'                 => Format::date(date('Y-m-d')),
+             'applicationID'        => $builder->getConfig('foreignTableID'),
+@@ -98,17 +99,18 @@
+             'studentPreferredName' => $formData->get('preferredName'),
+             'studentSurname'       => $formData->get('surname'),
+             'studentOfficialName'  => $formData->get('officialName'),
+-            'parentTitle'          => $formData->get('parent1title'),
+-            'parentPreferredName'  => $formData->get('parent1preferredName'),
+-            'parentSurname'        => $formData->get('parent1surname'),
+             'organisationAdmissionsEmail' => $this->session->get('organisationAdmissionsEmail'),
+             'organisationAdmissionsName'  => $this->session->get('organisationAdmissionsName'),
+-        ];
++        ], $this->getRecipientNames($builder, $formData));
+ 
+-        // Setup the email
+-        $this->mail->AddAddress($builder->getConfig('accountEmail'));
+-        if ($formData->has('parent1email')) {
+-            $this->mail->AddAddress($formData->has('parent1email'));
++        // Setup the email: the admissions account, plus the applicant's own address if different
++        // (Parent 1 when a parent is applying, the student when the student is applying)
++        $accountEmail = $builder->getConfig('accountEmail', '');
++        $applicantEmail = ApplicantType::isStudent($builder, $formData) ? $formData->get('email') : $formData->get('parent1email');
++
++        $this->mail->AddAddress($accountEmail);
++        if (!empty($applicantEmail) && strtolower($applicantEmail) != strtolower($accountEmail)) {
++            $this->mail->AddAddress($applicantEmail);
+         }
+ 
+         $this->mail->setDefaultSender($template->renderSubject($templateData));
+@@ -137,4 +139,26 @@
+     {
+         // Cannot unsend what has been sent...
+     }
++
++    /**
++     * Names for the email greeting: the student when the student is applying, otherwise
++     * Parent 1 (falling back to the student if no parent name was given).
++     * The parent* keys are kept so existing templates work unchanged.
++     */
++    protected function getRecipientNames(FormBuilderInterface $builder, FormDataInterface $formData) : array
++    {
++        if (!ApplicantType::isStudent($builder, $formData) && ($formData->has('parent1surname') || $formData->has('parent1preferredName'))) {
++            return [
++                'parentTitle'         => $formData->get('parent1title'),
++                'parentPreferredName' => $formData->get('parent1preferredName'),
++                'parentSurname'       => $formData->get('parent1surname'),
++            ];
++        }
++
++        return [
++            'parentTitle'         => $formData->get('title', ''),
++            'parentPreferredName' => $formData->get('preferredName'),
++            'parentSurname'       => $formData->get('surname'),
++        ];
++    }
+ }
+diff -ruN a/src/Forms/Builder/View/ApplicationSubmitView.php b/src/Forms/Builder/View/ApplicationSubmitView.php
+--- a/src/Forms/Builder/View/ApplicationSubmitView.php	2026-10-24 16:34:48.202389767 -0500
++++ b/src/Forms/Builder/View/ApplicationSubmitView.php	2026-10-24 16:34:48.204678663 -0500
+@@ -38,7 +38,7 @@
+     
+     public function getHeading() : string
+     {
+-        return '';
++        return 'Applicant';
+     }
+ 
+     public function getName() : string
+@@ -53,7 +53,14 @@
+ 
+     public function configure(Form $form)
+     {
++        $options = [
++            'Parent'  => __('A parent or guardian, for a student'),
++            'Student' => __('The student, for themselves'),
++        ];
+ 
++        $row = $form->addRow();
++            $row->addLabel('applicantType', __('Who completes this application?'))->description(__('Decides who receives application emails and who the admissions account belongs to. Parent sections can still be included when the student applies. To accept both, create one form of each and name them so applicants can tell them apart.'));
++            $row->addSelect('applicantType')->fromArray($options);
+     }
+ 
+     public function display(Form $form, FormDataInterface $data)
+diff -ruN a/src/Forms/Builder/View/PayProcessingFeeView.php b/src/Forms/Builder/View/PayProcessingFeeView.php
+--- a/src/Forms/Builder/View/PayProcessingFeeView.php	2026-10-24 16:34:48.186632569 -0500
++++ b/src/Forms/Builder/View/PayProcessingFeeView.php	2026-10-24 16:34:48.192512556 -0500
+@@ -51,7 +51,7 @@
+ 
+     public function getDescription() : string
+     {
+-        return __('Send a processing fee request to the parent by email.');
++        return __('Send a processing fee request to the applicant by email.');
+     }
+ 
+     public function configure(Form $form)
+diff -ruN a/src/Forms/Builder/View/SendAcceptanceEmailView.php b/src/Forms/Builder/View/SendAcceptanceEmailView.php
+--- a/src/Forms/Builder/View/SendAcceptanceEmailView.php	2026-10-24 16:34:48.166931720 -0500
++++ b/src/Forms/Builder/View/SendAcceptanceEmailView.php	2026-10-24 16:34:48.169295946 -0500
+@@ -68,8 +68,8 @@
+ 
+         $templates = $this->emailTemplateGateway->selectAvailableTemplatesByType('Admissions', 'Parent Welcome Email')->fetchKeyPair();
+         $row = $form->addRow();
+-            $row->addLabel('acceptanceEmailParentTemplate', __('Parent Acceptance Template'))->description(__('The content of email templates can be customized in System Admin > Email Templates.'));
+-            $row->addSelect('acceptanceEmailParentTemplate')->fromArray($templates)->required()->placeholder();
++            $row->addLabel('acceptanceEmailParentTemplate', __('Parent Acceptance Template'))->description(__('The content of email templates can be customized in System Admin > Email Templates.').' '.__('Leave blank for forms without parent fields.'));
++            $row->addSelect('acceptanceEmailParentTemplate')->fromArray($templates)->placeholder();
+     }
+ 
+     public function configureEdit(Form $form, FormDataInterface $data, string $id)
+diff -ruN a/src/Forms/Builder/View/SendSubmissionEmailView.php b/src/Forms/Builder/View/SendSubmissionEmailView.php
+--- a/src/Forms/Builder/View/SendSubmissionEmailView.php	2026-10-24 16:34:48.178466840 -0500
++++ b/src/Forms/Builder/View/SendSubmissionEmailView.php	2026-10-24 16:34:48.180272856 -0500
+@@ -69,7 +69,9 @@
+     {
+         if (!$data->exists($this->getResultName())) return;
+ 
+-        if (!$data->has('submissionEmail') && !$data->has('parent1email')) return;
++        // The address is recorded as a result (see SendSubmissionEmail), so check results too: forms without
++        // a Parent 1 email (eg: a student applying for themselves) otherwise never showed this line
++        if (!$data->hasResult('submissionEmail') && !$data->has('submissionEmail') && !$data->has('parent1email')) return;
+ 
+         $col = $form->addRow()->addColumn();
+         $col->addLabel($this->getResultName(), $this->getName());

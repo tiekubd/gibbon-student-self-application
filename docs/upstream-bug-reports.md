@@ -1,6 +1,6 @@
 # Upstream bug reports
 
-Four v30.0.01 bugs found while testing student applications, filed as GitHub issues. Each one affects any
+Five v30.0.01 bugs found while testing student applications, filed as GitHub issues. Each one affects any
 school, and each was still present in the development branch on 9 October 2026 (commit `1d83c2b`).
 A third, an acceptance email issue, was reported privately to the Gibbon team, following Gibbon's
 security policy. Line
@@ -125,6 +125,38 @@ Filed as [#2202](https://github.com/GibbonEdu/core/issues/2202). Confirmed on a 
 `$invoiceTo = ''` sets `$invoiceTo` to an empty string (and is false, so the check still passes). The receipt code then tests `$invoiceTo == 'Company'`, which is never true, and sends to the family.
 
 **Fix:** `$invoiceTo == ''`.
+
+---
+
+## 5. Admissions Family tab: empty "New Parent" row, and the applicant listed as their own sibling
+
+Filed as [#2207](https://github.com/GibbonEdu/core/issues/2207). Found after the others, on a graduate application form for a university, and checked against the development branch on 16 October 2026 (commit `65f86bf`); line numbers are from that commit.
+
+**Where:** `src/Domain/Admissions/AdmissionsApplicationGateway.php`, `queryFamilyByApplication()` (lines 170 to 330).
+
+**Steps (stock v30.0.01):** make an application form without the Parent 1 and Parent 2 fields, submit an application, and open it in Manage Applications > Edit > Family.
+
+**Expected:** one row, the applicant.
+
+**Actual:** an empty Parent row (status Pending, "New Parent"), and the applicant with Relationship "Sibling" and "Current Application".
+
+**Cause:**
+- The "Application Parent 1, pre-acceptance" union (around line 248) does not check that the application has Parent 1 details. The Parent 2 union does (`$.parent2surname IS NOT NULL`, line 273).
+- The "Application siblings, same admissions account (including self)" union labels every application `"Sibling"` (line 317), including the current one. On parent forms, the child being applied for is listed as their own sibling.
+
+**Fix:**
+
+```php
+            ->where('JSON_UNQUOTE(JSON_EXTRACT(gibbonAdmissionsApplication.data, "$.parent1surname")) IS NOT NULL')
+```
+
+in the Parent 1 union, and in the application siblings union:
+
+```php
+                'IF(applications.gibbonAdmissionsApplicationID = gibbonAdmissionsApplication.gibbonAdmissionsApplicationID, "Applicant", "Sibling") as relationship',
+```
+
+"Applicant" is data, like "Sibling", not a translated string.
 
 ---
 

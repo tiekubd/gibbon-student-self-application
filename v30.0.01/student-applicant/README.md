@@ -60,6 +60,7 @@ It also fixes these v30.0.01 bugs, found while testing:
 - **An acceptance email issue**: reported privately to the Gibbon team; details withheld until a fix is released.
 - **Online invoice payment receipts, who they go to**: a Company invoice paid online had its receipt sent to the family, not the company. `invoices_payOnlineProcess.php` line 156 assigns (`$invoiceTo = ''`) where it means to compare, which clears the invoice's "billed to" before the receipt is sent. Reported in [#2202](https://github.com/GibbonEdu/core/issues/2202).
 - **Online invoice payment receipts**: when the payer was logged in, the receipt email had a blank status, the wrong receipt number and no payment details. A payer who wasn't logged in got a correct receipt for a first payment, but receipt 1 again for any later payment on the same invoice. Reported in [#2201](https://github.com/GibbonEdu/core/issues/2201).
+- **Admissions Family tab**: on a form without Parent 1, staff saw an empty "New Parent" row, and every application, the current one included, was labelled "Sibling". The empty row is now skipped when the application has no Parent 1 surname (as Gibbon already does for Parent 2), and the current application is labelled "Applicant". Reported in [#2207](https://github.com/GibbonEdu/core/issues/2207).
 
 The applicant setting needs no database change; it is stored in the form's existing configuration. Billing the student needs `sql/finance_student.sql` (below).
 
@@ -68,12 +69,12 @@ The applicant setting needs no database change; it is stored in the form's exist
 Back up the database and the files first.
 
 1. Upload `student-applicant.sh` to the webroot and run `bash student-applicant.sh check`.
-   All 31 lines should say `OK` (stock v30.0.01; `ApplicantType.php` is new, so `OK` there means it isn't present yet). Stop if any say `UNEXPECTED`.
+   All 32 lines should say `OK` (stock v30.0.01; `ApplicantType.php` is new, so `OK` there means it isn't present yet). Stop if any say `UNEXPECTED`.
    The last line shows whether the database step has been done.
 2. Run `sql/finance_student.sql` one step at a time (phpMyAdmin, or `mysql` on the server), checking each result.
 3. Run `bash student-applicant.sh backup`. It copies each file to `<file>.v30bak`.
-4. Upload the `src` and `modules` folders over the webroot. That's 31 files, one of them new: `src/Forms/Builder/ApplicantType.php`.
-5. Run `bash student-applicant.sh verify`. All 31 should say `OK`, and the database line `done`.
+4. Upload the `src` and `modules` folders over the webroot. That's 32 files, one of them new: `src/Forms/Builder/ApplicantType.php`.
+5. Run `bash student-applicant.sh verify`. All 32 should say `OK`, and the database line `done`.
 
 The database step comes before the files: with the files but not the database, choosing Student
 would fail when it is saved.
@@ -95,6 +96,7 @@ switches anything billed to Student back to Family before removing the value.
 | modules/Admissions/applications_manage_addProcess.php | `9caf3fd870ab264a464c0b3dbedbcda0` | `7b20e60dd4be699c8773baffcdf5b5ae` |
 | modules/Admissions/applications_manage_edit.php | `f5634305bdde1aec3819eb8f6ca64291` | `2c74b515e3fcb56d655982668be2eac3` |
 | modules/Admissions/applications_manage_editProcess.php | `c68edc88f86bd757b097ef991666a83f` | `ecb33f8bd3c68dc5defbb85f11e6d1de` |
+| src/Domain/Admissions/AdmissionsApplicationGateway.php | `baedf2767de9acf6c11414d9aef6aae9` | `30379da237a7bc0d85552271e36276d0` |
 | src/Forms/Builder/ApplicantType.php | (new) | `62106efe8b6081fdffa9be61a3d2ed2e` |
 | src/Forms/Builder/Fields/FamilyFields.php | `c588ad5c7d7c6869bbb661b791356dc4` | `696acc9557cd57279404ebf19c1e189b` |
 | src/Forms/Builder/Fields/FinanceFields.php | `ac1364b614f1e8e1e7009e43bba616e6` | `a8ec5b42bc116d2364e0c6ddc737fbfb` |
@@ -209,6 +211,7 @@ Tested on a fresh install of the official v30.0.01 release bundle with demo data
 - The applicant suites above, rerun with the billing files installed: 32 / 32 and 14 / 14. The receipt-number test passes.
 - Install script with the database step, on a copy of stock v30.0.01: `check` reports the database step as "not run", `verify` refuses until it is run, and `rollback` plus `sql/finance_student_rollback.sql` restore stock files and columns (anything billed to Student becomes Family).
 - Hand tests 8 to 13 on a live v30.0.01 site with the PayPal sandbox: all passed. A Student invoice paid online, logged out and logged in, gave the student a complete receipt; a Company invoice's receipt reached the company email (stock sent it to the father); the student saw both invoices under View Invoices.
+- The Family tab fix, on a live v30.0.01 site with a graduate form that has no parent fields: the empty Parent row is gone and the applicant shows as Student / Applicant. Both conditions were also checked as SQL against a sample application.
 - No PHP warnings or errors from Gibbon code.
 
 Known limitation (as in stock Gibbon): accepting a second application from the same student

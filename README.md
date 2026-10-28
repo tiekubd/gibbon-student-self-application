@@ -38,7 +38,7 @@ one database step (`sql/finance_student.sql`), with a rollback script.
 
 | Folder | What it is |
 |---|---|
-| [`v30.0.01/student-applicant`](v30.0.01/student-applicant) | The package: 31 files (one new), the database step for billing the student, an install script with check, backup, verify and rollback, test forms (`sql/test_forms.sql`), and a README with checksums and a hand-test plan. Includes the v30 bug fixes below. |
+| [`v30.0.01/student-applicant`](v30.0.01/student-applicant) | The package: 32 files (one new), the database step for billing the student, an install script with check, backup, verify and rollback, test forms (`sql/test_forms.sql`), and a README with checksums and a hand-test plan. Includes the v30 bug fixes below. |
 | [`v30.0.01/hotfix-assignhouse`](v30.0.01/hotfix-assignhouse) | Only the AssignHouse fix and a repair script, for schools that want that fix alone. Already in the package. |
 | [`patches`](patches) | The same changes as unified diffs against v30.0.01. |
 | [`tests`](tests) | The test harness and end-to-end scripts used to verify the package. |
@@ -55,6 +55,7 @@ Found while testing; they affect every school, not only student applicants.
 | "Submission Email" line missing from the applicant's results page on forms without a Parent 1 email | Still present; reported in [#2184](https://github.com/GibbonEdu/core/issues/2184) |
 | Online invoice payment receipt has a blank status and no payment details when the payer is logged in | Still present; reported in [#2201](https://github.com/GibbonEdu/core/issues/2201) |
 | Online payment receipt for a Company invoice goes to the family, not the company | Still present; reported in [#2202](https://github.com/GibbonEdu/core/issues/2202) |
+| Admissions Family tab shows an empty "New Parent" row on forms without Parent 1, and labels the applicant as their own sibling | Still present (16 Oct 2026); reported in [#2207](https://github.com/GibbonEdu/core/issues/2207) |
 | Auto House Assign writes every new student's house to person 1 | Fixed ([PR #2121](https://github.com/GibbonEdu/core/pull/2121)) |
 
 Reports as filed: [docs/upstream-bug-reports.md](docs/upstream-bug-reports.md).
@@ -76,7 +77,7 @@ the Gibbon webroot:
 1. Run `bash student-applicant.sh check`.
 2. Run `sql/finance_student.sql`, one step at a time.
 3. Run `backup`.
-4. Upload the `src` and `modules` folders (31 files).
+4. Upload the `src` and `modules` folders (32 files).
 5. Run `verify`.
 
 **v30.0.01 only:** do not copy these files over a different version.

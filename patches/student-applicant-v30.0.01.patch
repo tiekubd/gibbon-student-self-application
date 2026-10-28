@@ -565,6 +565,26 @@ diff -ruN a/modules/Finance/src/Forms/FinanceFormFactory.php b/modules/Finance/s
          // Family Emails
          if ($values['invoiceTo'] == 'Family' || ($values['invoiceTo'] == 'Company' && $values['companyCCFamily'] == 'Y')) {
              $data = array('gibbonFinanceInvoiceeID' => $values['gibbonFinanceInvoiceeID']);
+diff -ruN a/src/Domain/Admissions/AdmissionsApplicationGateway.php b/src/Domain/Admissions/AdmissionsApplicationGateway.php
+--- a/src/Domain/Admissions/AdmissionsApplicationGateway.php	2026-10-27 22:13:24.007187609 -0500
++++ b/src/Domain/Admissions/AdmissionsApplicationGateway.php	2026-10-27 22:13:24.014531298 -0500
+@@ -245,6 +245,7 @@
+             ->where('gibbonAdmissionsApplication.status <> "Accepted"')
+             ->where('gibbonAdmissionsApplication.foreignTable="gibbonAdmissionsAccount"')
+             ->where('gibbonAdmissionsApplication.gibbonAdmissionsApplicationID=:gibbonAdmissionsApplicationID')
++            ->where('JSON_UNQUOTE(JSON_EXTRACT(gibbonAdmissionsApplication.data, "$.parent1surname")) IS NOT NULL') // Local fix: skip forms with no Parent 1 (student applying for themselves), as Parent 2 already does
+             ->where('JSON_UNQUOTE(JSON_EXTRACT(gibbonAdmissionsApplication.data, "$.gibbonPersonIDParent1")) IS NULL')
+             ->where('JSON_UNQUOTE(JSON_EXTRACT(gibbonAdmissionsApplication.result, "$.gibbonPersonIDParent1")) IS NULL')
+             ->bindValue('gibbonAdmissionsApplicationID', $gibbonAdmissionsApplicationID);
+@@ -314,7 +315,7 @@
+                 '"Student" as roleCategory',
+                 'applications.status',
+                 '"" as image_240',
+-                '"Sibling" as relationship',
++                'IF(applications.gibbonAdmissionsApplicationID = gibbonAdmissionsApplication.gibbonAdmissionsApplicationID, "Applicant", "Sibling") as relationship', // Local fix: the current application is the applicant, not a sibling
+                 'gibbonYearGroup.name as yearGroup',
+                 'applications.gibbonAdmissionsApplicationID as applicationID',
+             ])
 diff -ruN a/src/Forms/Builder/ApplicantType.php b/src/Forms/Builder/ApplicantType.php
 --- a/src/Forms/Builder/ApplicantType.php	1969-12-31 18:00:00.000000000 -0600
 +++ b/src/Forms/Builder/ApplicantType.php	2026-10-24 16:34:48.083155625 -0500

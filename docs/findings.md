@@ -2,7 +2,7 @@
 
 Oct 24, 2026 · Tieku Bortei-Doku, High Point Education Solutions
 
-One setting per application form, "Who completes this application?", lets a student apply for themselves on Gibbon v30.0.01, including on forms that still collect parent details. It passed every automated check, seven hand tests, and application fee and invoice payments through the PayPal sandbox on a fresh v30.0.01 site with demo data. A third invoice choice, Student, bills the student directly, reading their details live from their own record. Testing also found six v30 bugs, five still in the development branch.
+One setting per application form, "Who completes this application?", lets a student apply for themselves on Gibbon v30.0.01, including on forms that still collect parent details. It passed every automated check, seven hand tests, and application fee and invoice payments through the PayPal sandbox on a fresh v30.0.01 site with demo data. A third invoice choice, Student, bills the student directly, reading their details live from their own record. Testing also found seven v30 bugs, six still in the development branch.
 
 ## The design
 
@@ -28,7 +28,7 @@ The rule lives in one class, `ApplicantType`, and every automated step follows i
 
 ## Findings
 
-Sixteen of 20 findings are fixed in the package; two are school settings; two are open (checking a family-less applicant's Family choice, and reusing records on a repeat application).
+Seventeen of 21 findings are fixed in the package; two are school settings; two are open (checking a family-less applicant's Family choice, and reusing records on a repeat application).
 
 | # | Finding | Status |
 | --- | --- | --- |
@@ -52,6 +52,7 @@ Sixteen of 20 findings are fixed in the package; two are school settings; two ar
 | 18 | Applying again creates a second student record, and re-entered parents become new records | Open (Phase 2b) |
 | 19 | The receipt for an invoice paid online has a blank status, the wrong receipt number and no payment details when the payer is logged in | Fixed; reported in [#2201](https://github.com/GibbonEdu/core/issues/2201) |
 | 20 | The receipt for a Company invoice paid online goes to the family, not the company | Fixed; reported in [#2202](https://github.com/GibbonEdu/core/issues/2202) |
+| 21 | The Admissions Family tab shows an empty "New Parent" row on forms without Parent 1, and labels the applicant as their own sibling | Fixed; reported in [#2207](https://github.com/GibbonEdu/core/issues/2207) |
 
 - **#12:** a logged-in user's own record becomes Parent 1 through a hidden field. Right for a parent, wrong for an accepted student applying again. Reproduced on stock v30.0.01.
 - **#14:** `FamilyFields` hides the address fields on one test (person or family) but validates them on another (person only), and only sets `$families` in one branch. Reproduced on stock in staff Edit.
@@ -59,6 +60,7 @@ Sixteen of 20 findings are fixed in the package; two are school settings; two ar
 - **#18:** for a student, a second application is always the same person (next intake, another programme, postgraduate study), but Gibbon treats each one as a new child.
 - **#19:** `invoices_payOnlineProcess.php` passes the payment count where `receiptContents()` expects a zero-based receipt number, and counts payments with an inner join to `gibbonPerson`, so payments by someone not logged in are left out. A logged-in payer's receipt looks for a payment that doesn't exist; a payer who isn't logged in gets the right receipt for a first payment by chance, but receipt 1 again for any later one. Affects every school taking online invoice payments.
 - **#20:** `invoices_payOnlineProcess.php` line 156 has `$invoiceTo = ''` (an assignment) inside the check that the invoice was found, so `$invoiceTo` is always empty afterwards and the receipt goes down the family branch. Affects every school whose company-billed invoices are paid online.
+- **#21:** `queryFamilyByApplication()` in `AdmissionsApplicationGateway.php` shows Parent 1 from the application data without checking there is any (Parent 2 already checks `parent2surname`), and labels every application on the account "Sibling", including the one being viewed. Found on a university graduate form with no parent fields; the label also shows on parent forms.
 
 ## Pre-fill and logging in
 
@@ -129,7 +131,7 @@ No PHP warnings or errors from Gibbon code in any run.
 ## Next steps
 
 1. **Upstream discussion** of the setting in the Feature Requests thread, before any pull request.
-2. **Bug reports:** #14 filed as [#2183](https://github.com/GibbonEdu/core/issues/2183), #15 as [#2184](https://github.com/GibbonEdu/core/issues/2184), #19 as [#2201](https://github.com/GibbonEdu/core/issues/2201), #20 as [#2202](https://github.com/GibbonEdu/core/issues/2202), and #13 reported privately.
+2. **Bug reports:** #14 filed as [#2183](https://github.com/GibbonEdu/core/issues/2183), #15 as [#2184](https://github.com/GibbonEdu/core/issues/2184), #19 as [#2201](https://github.com/GibbonEdu/core/issues/2201), #20 as [#2202](https://github.com/GibbonEdu/core/issues/2202), #21 as [#2207](https://github.com/GibbonEdu/core/issues/2207), and #13 reported privately.
 3. **Phase 2b:** on acceptance, reuse the existing student when the account already belongs to one, and match parents already in the family by email (#17, #18).
 4. **Phase 3, Finance:** built (#2, #7, #8); 34 / 34 automated checks, and hand tests 8 to 13 passed on the live site with the PayPal sandbox. Next: the Feature Requests thread.
 
@@ -139,7 +141,7 @@ Nothing planned upstream conflicts with this work, and the roadmap's Admissions 
 
 - **Roadmap:** the Admissions module is "In Progress": more reporting and statistics, and pre-application and post-application forms.
 - **Separate forms:** the two-option design follows the existing advice to create separate application forms for different situations.
-- **Development branch (9 Oct 2026):** AssignHouse is fixed ([PR #2121](https://github.com/GibbonEdu/core/pull/2121)); #14, #15, #19 and #20 are still present; #13 is reported privately. No change touches the `invoiceTo` columns.
+- **Development branch (9 Oct 2026):** AssignHouse is fixed ([PR #2121](https://github.com/GibbonEdu/core/pull/2121)); #14, #15, #19 and #20 are still present; #13 is reported privately. On 16 Oct 2026 (commit `65f86bf`), #21 was also present. No change touches the `invoiceTo` columns.
 - **Student invoicing:** in 2020 Ross said invoicing students directly was not possible but that he would include it if someone implemented it. Phase 3 is that implementation.
 - **Code style:** Sandra's review of PR #2121 asked for a single gateway query instead of several.
 - **Dates:** v31 string freeze 20 Oct 2026, release 20 Nov 2026; v32 string freeze 20 Apr 2027. The setting adds new strings, so it would target v32; the bug fixes add none.
